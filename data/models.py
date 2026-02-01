@@ -251,6 +251,20 @@ class Position(BaseModel):
     sector: str | None = None
 
 
+class ClosedTrade(BaseModel):
+    """Record of a closed (or partially closed) position slice."""
+
+    symbol: str
+    direction: DirectionType
+    shares: int
+    entry_price: float
+    exit_price: float
+    entry_time: int
+    exit_time: int
+    pnl: float
+    pnl_pct: float
+
+
 # ---------------------------------------------------------------------------
 # Pre-trade compliance models
 # ---------------------------------------------------------------------------

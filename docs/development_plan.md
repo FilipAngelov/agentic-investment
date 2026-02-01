@@ -71,7 +71,7 @@ Depends on: Phase 3
 
 | Task | Description | Deliverable |
 |------|-------------|-------------|
-| 4.1 | Position tracker — real-time P&L | `portfolio/tracker.py` |
+| 4.1 | Position tracker — real-time P&L | `portfolio/tracker.py` | ✅ Done |
 | 4.2 | Trade logging with full context | Structured trade log |
 | 4.3 | Performance analytics — Sharpe, win rate, profit factor, per-sector stats | `portfolio/analytics.py` |
 | 4.4 | Notification agent — WhatsApp alerts via API | `portfolio/notify.py` |
