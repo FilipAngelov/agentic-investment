@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import threading
 import time
-from pathlib import Path
 
-import aiosqlite
 import uvicorn
 from fastapi import FastAPI, Query
 
-from data.store import query_trades
+from data.store import get_db, query_trades
 from portfolio.analytics import compute_metrics, compute_metrics_by_group
 from portfolio.reports import generate_daily_report, generate_weekly_report
 
@@ -19,7 +17,6 @@ def create_app(
     tracker,
     risk_controller,
     reconciler,
-    db_path: str | Path,
     equity: float = 10_000.0,
 ) -> FastAPI:
     """Build a FastAPI app wired to live runtime objects.
@@ -29,24 +26,13 @@ def create_app(
     tracker : PositionTracker
     risk_controller : RiskController
     reconciler : Reconciler
-    db_path : path to SQLite database
     equity : starting equity for metric calculations
     """
     app = FastAPI(title="Agentic Investment Dashboard", version="0.1.0")
     app.state.tracker = tracker
     app.state.risk = risk_controller
     app.state.reconciler = reconciler
-    app.state.db_path = str(db_path)
     app.state.equity = equity
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    async def _get_db() -> aiosqlite.Connection:
-        db = await aiosqlite.connect(app.state.db_path)
-        db.row_factory = aiosqlite.Row
-        return db
 
     # ------------------------------------------------------------------
     # Endpoints
@@ -79,25 +65,18 @@ def create_app(
 
     @app.get("/api/metrics")
     async def metrics():
-        db = await _get_db()
-        try:
-            trades = await query_trades(db)
-            return compute_metrics(trades, app.state.equity)
-        finally:
-            await db.close()
+        async with get_db() as conn:
+            trades = await query_trades(conn)
+        return compute_metrics(trades, app.state.equity)
 
     @app.get("/api/metrics/sectors")
     async def metrics_sectors():
-        db = await _get_db()
-        try:
-            trades = await query_trades(db)
-            return compute_metrics_by_group(trades, app.state.equity, "sector")
-        finally:
-            await db.close()
+        async with get_db() as conn:
+            trades = await query_trades(conn)
+        return compute_metrics_by_group(trades, app.state.equity, "sector")
 
     @app.get("/api/risk")
     async def risk():
-        # Return latest evaluate() snapshot if available; otherwise basic status
         return {
             "halted": app.state.risk.is_halted,
         }
@@ -108,13 +87,10 @@ def create_app(
         symbol: str | None = Query(None),
         sector: str | None = Query(None),
     ):
-        db = await _get_db()
-        try:
+        async with get_db() as conn:
             return await query_trades(
-                db, symbol=symbol, sector=sector, limit=limit,
+                conn, symbol=symbol, sector=sector, limit=limit,
             )
-        finally:
-            await db.close()
 
     @app.get("/api/reports/daily")
     async def report_daily():
@@ -122,7 +98,6 @@ def create_app(
             app.state.tracker,
             app.state.risk,
             app.state.reconciler,
-            app.state.db_path,
             app.state.equity,
         )
         return {"report": report, "timestamp": int(time.time())}
@@ -133,7 +108,6 @@ def create_app(
             app.state.tracker,
             app.state.risk,
             app.state.reconciler,
-            app.state.db_path,
             app.state.equity,
         )
         return {"report": report, "timestamp": int(time.time())}

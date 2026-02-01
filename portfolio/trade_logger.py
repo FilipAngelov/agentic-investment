@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-import aiosqlite
+import asyncpg
 
 from data.models import ClosedTrade, Signal
 from data.store import insert_trade
@@ -21,7 +21,7 @@ class EntryContext:
 
 
 class TradeLogger:
-    """Persists trades to SQLite with full signal + exit context."""
+    """Persists trades to PostgreSQL with full signal + exit context."""
 
     def __init__(self) -> None:
         self._entry_context: dict[str, EntryContext] = {}
@@ -47,7 +47,7 @@ class TradeLogger:
 
     async def record_exit(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         closed: ClosedTrade,
         exit_reason: str,
     ) -> int:
@@ -78,7 +78,7 @@ class TradeLogger:
 
     async def record_exits(
         self,
-        db: aiosqlite.Connection,
+        db: asyncpg.Connection,
         closed_trades: list[ClosedTrade],
         exit_reason: str,
     ) -> list[int]:

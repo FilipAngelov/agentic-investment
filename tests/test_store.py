@@ -1,9 +1,7 @@
-"""Tests for SQLite persistence layer."""
+"""Tests for PostgreSQL persistence layer."""
 
 import pytest
-import aiosqlite
-
-from data.store import SCHEMA_SQL
+import asyncpg
 
 
 EXPECTED_TABLES = {
@@ -16,23 +14,12 @@ EXPECTED_TABLES = {
 }
 
 
-@pytest.fixture
-async def db(tmp_path):
-    """Create an in-memory-like temp DB with schema applied."""
-    db_path = tmp_path / "test.db"
-    db = await aiosqlite.connect(db_path)
-    await db.executescript(SCHEMA_SQL)
-    await db.commit()
-    yield db
-    await db.close()
-
-
 async def test_all_tables_created(db):
-    cursor = await db.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+    rows = await db.fetch(
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
     )
-    tables = {row[0] for row in await cursor.fetchall()}
-    assert tables == EXPECTED_TABLES
+    tables = {row["tablename"] for row in rows}
+    assert EXPECTED_TABLES.issubset(tables)
 
 
 async def test_bars_unique_constraint(db):
@@ -40,7 +27,7 @@ async def test_bars_unique_constraint(db):
         "INSERT INTO bars (symbol, timestamp, timeframe, open, high, low, close, volume) "
         "VALUES ('AAPL', 1000, '1d', 150.0, 155.0, 149.0, 153.0, 1000000)"
     )
-    with pytest.raises(aiosqlite.IntegrityError):
+    with pytest.raises(asyncpg.UniqueViolationError):
         await db.execute(
             "INSERT INTO bars (symbol, timestamp, timeframe, open, high, low, close, volume) "
             "VALUES ('AAPL', 1000, '1d', 151.0, 156.0, 150.0, 154.0, 2000000)"
@@ -52,10 +39,10 @@ async def test_trades_insert_and_read(db):
         "INSERT INTO trades (symbol, direction, entry_time, entry_price, entry_shares, regime) "
         "VALUES ('NVDA', 'LONG', 1000, 500.0, 10, 'bull')"
     )
-    await db.commit()
-    cursor = await db.execute("SELECT symbol, direction, entry_shares FROM trades")
-    row = await cursor.fetchone()
-    assert row == ("NVDA", "LONG", 10)
+    row = await db.fetchrow("SELECT symbol, direction, entry_shares FROM trades")
+    assert row["symbol"] == "NVDA"
+    assert row["direction"] == "LONG"
+    assert row["entry_shares"] == 10
 
 
 async def test_regime_log_insert(db):
@@ -63,23 +50,20 @@ async def test_regime_log_insert(db):
         "INSERT INTO regime_log (timestamp, regime, spy_vs_20sma, spy_vs_50sma, vix, regime_factor) "
         "VALUES (1000, 'strong_bull', 1.02, 1.05, 13.5, 1.5)"
     )
-    await db.commit()
-    cursor = await db.execute("SELECT regime, regime_factor FROM regime_log")
-    row = await cursor.fetchone()
-    assert row == ("strong_bull", 1.5)
+    row = await db.fetchrow("SELECT regime, regime_factor FROM regime_log")
+    assert row["regime"] == "strong_bull"
+    assert row["regime_factor"] == 1.5
 
 
 async def test_catalyst_foreign_key_in_trades(db):
-    await db.execute("PRAGMA foreign_keys=ON")
     await db.execute(
         "INSERT INTO catalysts (timestamp, headline, source, magnitude) "
         "VALUES (1000, 'FDA approval', 'SEC', 5)"
     )
+    cat_id = await db.fetchval("SELECT id FROM catalysts WHERE headline = 'FDA approval'")
     await db.execute(
         "INSERT INTO trades (symbol, direction, entry_time, entry_price, entry_shares, catalyst_id) "
-        "VALUES ('MRNA', 'LONG', 1000, 100.0, 20, 1)"
+        "VALUES ('MRNA', 'LONG', 1000, 100.0, 20, $1)", cat_id
     )
-    await db.commit()
-    cursor = await db.execute("SELECT catalyst_id FROM trades WHERE symbol='MRNA'")
-    row = await cursor.fetchone()
-    assert row[0] == 1
+    row = await db.fetchrow("SELECT catalyst_id FROM trades WHERE symbol='MRNA'")
+    assert row["catalyst_id"] == cat_id

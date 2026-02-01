@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-import aiosqlite
 import pytest
 
 from data.ingest import (
@@ -25,35 +24,6 @@ from data.store import (
     insert_bars,
     query_bars,
 )
-
-SCHEMA_SQL_BARS = """
-CREATE TABLE IF NOT EXISTS bars (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL,
-    timestamp INTEGER NOT NULL,
-    timeframe TEXT NOT NULL,
-    open REAL NOT NULL,
-    high REAL NOT NULL,
-    low REAL NOT NULL,
-    close REAL NOT NULL,
-    volume INTEGER NOT NULL,
-    vwap REAL,
-    trade_count INTEGER,
-    UNIQUE(symbol, timestamp, timeframe)
-);
-"""
-
-
-@pytest.fixture
-async def db(tmp_path):
-    """In-memory SQLite with bars table."""
-    db_path = tmp_path / "test.db"
-    conn = await aiosqlite.connect(db_path)
-    await conn.executescript(SCHEMA_SQL_BARS)
-    await conn.commit()
-    conn.row_factory = aiosqlite.Row
-    yield conn
-    await conn.close()
 
 
 def _make_bar_dict(symbol="SPY", ts=1000000, tf="1d", price=100.0):
@@ -118,7 +88,7 @@ class TestRateLimiter:
         for _ in range(5):
             await rl.acquire()
         elapsed = time.monotonic() - start
-        assert elapsed < 0.5  # should be nearly instant
+        assert elapsed < 0.5
 
     @pytest.mark.asyncio
     async def test_acquire_respects_limit(self):
@@ -127,7 +97,6 @@ class TestRateLimiter:
         for _ in range(5):
             await rl.acquire()
         elapsed = time.monotonic() - start
-        # Should have waited ~1 second after first 3
         assert elapsed >= 0.8
 
 
@@ -233,8 +202,8 @@ class TestChunking:
         assert len(chunks) >= 3
 
     def test_empty_range(self):
-        dt = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        chunks = _chunk_date_range(dt, dt, 86400)
+        dt_ = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        chunks = _chunk_date_range(dt_, dt_, 86400)
         assert len(chunks) == 0
 
 
@@ -288,7 +257,6 @@ class TestSyncSymbol:
     @pytest.mark.asyncio
     async def test_incremental_sync(self, db):
         """When DB has bars, sync should fetch from last timestamp."""
-        # Insert an existing bar
         await insert_bars(db, [_make_bar_dict(ts=1_700_000_000)])
 
         fake_bar = _make_fake_ibkr_bar(1_700_100_000)
@@ -300,5 +268,4 @@ class TestSyncSymbol:
             count = await sync_symbol(ib, db, "SPY", "1d", lookback_days=500)
 
         assert count >= 1
-        # Verify the call used an endDateTime (it was called)
         assert ib.reqHistoricalDataAsync.called

@@ -4,15 +4,22 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import asyncpg
 import pytest
 
 from data.models import Catalyst
-from data.store import init_db, get_db
+from data.store import SCHEMA_STATEMENTS
 from scanner.news import CatalystEngine, VALID_CATALYST_TYPES
+
+TEST_DATABASE_URL = os.getenv(
+    "DATABASE_URL_TEST", "postgresql://localhost/agentic_investment_test"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -25,13 +32,24 @@ def engine():
 
 
 @pytest.fixture()
-async def db(tmp_path, monkeypatch):
-    """Provide a temporary SQLite DB."""
-    db_path = tmp_path / "test.db"
-    monkeypatch.setattr("data.store.DB_PATH", db_path)
-    monkeypatch.setattr("config.settings.DB_PATH", db_path)
-    await init_db()
-    return db_path
+async def news_db():
+    """Provide a PG connection with schema, wrapped so get_db() returns it."""
+    conn = await asyncpg.connect(TEST_DATABASE_URL)
+    tr = conn.transaction()
+    await tr.start()
+    for stmt in SCHEMA_STATEMENTS:
+        await conn.execute(stmt)
+
+    @asynccontextmanager
+    async def _mock_get_db():
+        yield conn
+
+    with patch("data.store.get_db", _mock_get_db), \
+         patch("scanner.news.get_db", _mock_get_db):
+        yield conn
+
+    await tr.rollback()
+    await conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +157,7 @@ async def test_classify_llm_failure_returns_defaults(engine):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_save_and_query(engine, db):
+async def test_save_and_query(engine, news_db):
     catalyst = Catalyst(
         timestamp=int(time.time()),
         symbol="AAPL",
@@ -159,7 +177,7 @@ async def test_save_and_query(engine, db):
 
 
 @pytest.mark.asyncio
-async def test_get_recent_filters_by_time(engine, db):
+async def test_get_recent_filters_by_time(engine, news_db):
     old_ts = int(time.time()) - 100_000
     new_ts = int(time.time())
     for ts, hl in [(old_ts, "Old news"), (new_ts, "New news")]:
@@ -188,7 +206,6 @@ def test_strength_decay():
 
     s1 = engine.get_catalyst_strength([c1], now_ts=now)
     s2 = engine.get_catalyst_strength([c2], now_ts=now)
-    # c2 is 7 hours old, should be roughly half the weight
     assert s1 > s2
     assert s2 == pytest.approx(5.0 * math.exp(-0.1 * 7), abs=0.01)
 
@@ -209,7 +226,7 @@ def test_strength_sums_multiple():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_dedup_skips_existing(engine, db):
+async def test_dedup_skips_existing(engine, news_db):
     """Same headline polled twice → only one DB row."""
     feed_entry = {
         "entries": [
@@ -225,7 +242,6 @@ async def test_dedup_skips_existing(engine, db):
     with patch("scanner.news.feedparser.parse", return_value=SimpleNamespace(
         entries=feed_entry["entries"], feed=feed_entry["feed"]
     )):
-        # Mock LLM
         mock_client = AsyncMock()
         llm_resp = json.dumps({
             "sentiment": 0.1, "magnitude": 1, "catalyst_type": "other",
@@ -248,7 +264,7 @@ async def test_dedup_skips_existing(engine, db):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_poll_feeds_e2e(engine, db):
+async def test_poll_feeds_e2e(engine, news_db):
     entries = [
         SimpleNamespace(
             title="FDA approves new drug",

@@ -1,115 +1,163 @@
-"""SQLite persistence layer (aiosqlite)."""
+"""PostgreSQL persistence layer (asyncpg)."""
 
-import aiosqlite
+from __future__ import annotations
 
-from config.settings import DB_PATH
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
-SCHEMA_SQL = """
--- Price data (OHLCV)
-CREATE TABLE IF NOT EXISTS bars (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL,
-    timestamp INTEGER NOT NULL,
-    timeframe TEXT NOT NULL,
-    open REAL NOT NULL,
-    high REAL NOT NULL,
-    low REAL NOT NULL,
-    close REAL NOT NULL,
-    volume INTEGER NOT NULL,
-    vwap REAL,
-    trade_count INTEGER,
-    UNIQUE(symbol, timestamp, timeframe)
-);
-CREATE INDEX IF NOT EXISTS idx_bars_sym_ts ON bars(symbol, timestamp);
-CREATE INDEX IF NOT EXISTS idx_bars_ts ON bars(timestamp);
+import asyncpg
 
--- Sector ETF tracking
-CREATE TABLE IF NOT EXISTS sector_snapshots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp INTEGER NOT NULL,
-    sector TEXT NOT NULL,
-    price REAL NOT NULL,
-    change_pct REAL,
-    volume INTEGER,
-    relative_strength REAL,
-    momentum_score REAL,
-    UNIQUE(sector, timestamp)
-);
+from config.settings import DATABASE_URL
 
--- News & catalysts
-CREATE TABLE IF NOT EXISTS catalysts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp INTEGER NOT NULL,
-    symbol TEXT,
-    sector TEXT,
-    headline TEXT NOT NULL,
-    source TEXT NOT NULL,
-    sentiment REAL,
-    magnitude INTEGER,
-    catalyst_type TEXT,
-    raw_text TEXT,
-    llm_analysis TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_catalysts_sym ON catalysts(symbol, timestamp);
+# ---------------------------------------------------------------------------
+# Schema (individual statements for asyncpg — no multi-statement execute)
+# ---------------------------------------------------------------------------
 
--- Trade log
-CREATE TABLE IF NOT EXISTS trades (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL,
-    direction TEXT NOT NULL,
-    entry_time INTEGER NOT NULL,
-    entry_price REAL NOT NULL,
-    entry_shares INTEGER NOT NULL,
-    exit_time INTEGER,
-    exit_price REAL,
-    exit_shares INTEGER,
-    pnl REAL,
-    pnl_pct REAL,
-    signal_score REAL,
-    signal_reason TEXT,
-    exit_reason TEXT,
-    catalyst_id INTEGER REFERENCES catalysts(id),
-    regime TEXT,
-    sector TEXT
-);
+SCHEMA_STATEMENTS: list[str] = [
+    # Price data (OHLCV)
+    """CREATE TABLE IF NOT EXISTS bars (
+        id SERIAL PRIMARY KEY,
+        symbol TEXT NOT NULL,
+        timestamp BIGINT NOT NULL,
+        timeframe TEXT NOT NULL,
+        open DOUBLE PRECISION NOT NULL,
+        high DOUBLE PRECISION NOT NULL,
+        low DOUBLE PRECISION NOT NULL,
+        close DOUBLE PRECISION NOT NULL,
+        volume BIGINT NOT NULL,
+        vwap DOUBLE PRECISION,
+        trade_count INTEGER,
+        UNIQUE(symbol, timestamp, timeframe)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_bars_sym_ts ON bars(symbol, timestamp)",
+    "CREATE INDEX IF NOT EXISTS idx_bars_ts ON bars(timestamp)",
 
--- Account snapshots (for equity curve)
-CREATE TABLE IF NOT EXISTS account_snapshots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp INTEGER NOT NULL,
-    net_liquidation REAL NOT NULL,
-    cash REAL,
-    buying_power REAL,
-    day_trades_remaining INTEGER,
-    daily_pnl REAL,
-    open_positions INTEGER,
-    portfolio_heat REAL
-);
+    # Sector ETF tracking
+    """CREATE TABLE IF NOT EXISTS sector_snapshots (
+        id SERIAL PRIMARY KEY,
+        timestamp BIGINT NOT NULL,
+        sector TEXT NOT NULL,
+        price DOUBLE PRECISION NOT NULL,
+        change_pct DOUBLE PRECISION,
+        volume BIGINT,
+        relative_strength DOUBLE PRECISION,
+        momentum_score DOUBLE PRECISION,
+        UNIQUE(sector, timestamp)
+    )""",
 
--- Market regime log
-CREATE TABLE IF NOT EXISTS regime_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp INTEGER NOT NULL,
-    regime TEXT NOT NULL,
-    spy_vs_20sma REAL,
-    spy_vs_50sma REAL,
-    vix REAL,
-    regime_factor REAL
-);
-"""
+    # News & catalysts
+    """CREATE TABLE IF NOT EXISTS catalysts (
+        id SERIAL PRIMARY KEY,
+        timestamp BIGINT NOT NULL,
+        symbol TEXT,
+        sector TEXT,
+        headline TEXT NOT NULL,
+        source TEXT NOT NULL,
+        sentiment DOUBLE PRECISION,
+        magnitude INTEGER,
+        catalyst_type TEXT,
+        raw_text TEXT,
+        llm_analysis TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_catalysts_sym ON catalysts(symbol, timestamp)",
+
+    # Trade log
+    """CREATE TABLE IF NOT EXISTS trades (
+        id SERIAL PRIMARY KEY,
+        symbol TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        entry_time BIGINT NOT NULL,
+        entry_price DOUBLE PRECISION NOT NULL,
+        entry_shares INTEGER NOT NULL,
+        exit_time BIGINT,
+        exit_price DOUBLE PRECISION,
+        exit_shares INTEGER,
+        pnl DOUBLE PRECISION,
+        pnl_pct DOUBLE PRECISION,
+        signal_score DOUBLE PRECISION,
+        signal_reason TEXT,
+        exit_reason TEXT,
+        catalyst_id INTEGER REFERENCES catalysts(id),
+        regime TEXT,
+        sector TEXT
+    )""",
+
+    # Account snapshots (for equity curve)
+    """CREATE TABLE IF NOT EXISTS account_snapshots (
+        id SERIAL PRIMARY KEY,
+        timestamp BIGINT NOT NULL,
+        net_liquidation DOUBLE PRECISION NOT NULL,
+        cash DOUBLE PRECISION,
+        buying_power DOUBLE PRECISION,
+        day_trades_remaining INTEGER,
+        daily_pnl DOUBLE PRECISION,
+        open_positions INTEGER,
+        portfolio_heat DOUBLE PRECISION
+    )""",
+
+    # Market regime log
+    """CREATE TABLE IF NOT EXISTS regime_log (
+        id SERIAL PRIMARY KEY,
+        timestamp BIGINT NOT NULL,
+        regime TEXT NOT NULL,
+        spy_vs_20sma DOUBLE PRECISION,
+        spy_vs_50sma DOUBLE PRECISION,
+        vix DOUBLE PRECISION,
+        regime_factor DOUBLE PRECISION
+    )""",
+]
+
+# ---------------------------------------------------------------------------
+# Connection pool (lazy singleton)
+# ---------------------------------------------------------------------------
+
+_pool: asyncpg.Pool | None = None
 
 
-async def get_db() -> aiosqlite.Connection:
-    """Open a connection to the SQLite database."""
-    db = await aiosqlite.connect(DB_PATH)
-    await db.execute("PRAGMA journal_mode=WAL")
-    await db.execute("PRAGMA foreign_keys=ON")
-    db.row_factory = aiosqlite.Row
-    return db
+async def get_pool() -> asyncpg.Pool:
+    """Return (and lazily create) the global connection pool."""
+    global _pool
+    if _pool is None:
+        _pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=10)
+    return _pool
+
+
+@asynccontextmanager
+async def get_db() -> AsyncIterator[asyncpg.Connection]:
+    """Acquire a connection from the pool (async context manager)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        yield conn
+
+
+async def close_pool() -> None:
+    """Close the global pool (call at shutdown)."""
+    global _pool
+    if _pool is not None:
+        await _pool.close()
+        _pool = None
+
+
+# ---------------------------------------------------------------------------
+# Schema init
+# ---------------------------------------------------------------------------
+
+
+async def init_db() -> None:
+    """Create all tables and indexes if they don't exist."""
+    async with get_db() as conn:
+        async with conn.transaction():
+            for stmt in SCHEMA_STATEMENTS:
+                await conn.execute(stmt)
+
+
+# ---------------------------------------------------------------------------
+# Catalysts
+# ---------------------------------------------------------------------------
 
 
 async def insert_catalyst(
-    db: aiosqlite.Connection,
+    conn: asyncpg.Connection,
     *,
     timestamp: int,
     symbol: str | None,
@@ -122,109 +170,116 @@ async def insert_catalyst(
     raw_text: str | None,
     llm_analysis: str | None,
 ) -> int:
-    """Insert a catalyst row and return its rowid."""
-    cur = await db.execute(
+    """Insert a catalyst row and return its id."""
+    row_id: int = await conn.fetchval(
         """INSERT INTO catalysts
            (timestamp, symbol, sector, headline, source, sentiment, magnitude,
             catalyst_type, raw_text, llm_analysis)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            timestamp, symbol, sector, headline, source, sentiment, magnitude,
-            catalyst_type, raw_text, llm_analysis,
-        ),
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           RETURNING id""",
+        timestamp, symbol, sector, headline, source, sentiment, magnitude,
+        catalyst_type, raw_text, llm_analysis,
     )
-    await db.commit()
-    return cur.lastrowid  # type: ignore[return-value]
+    return row_id
 
 
 async def query_catalysts(
-    db: aiosqlite.Connection,
+    conn: asyncpg.Connection,
     *,
     since_ts: int,
     symbol: str | None = None,
 ) -> list[dict]:
     """Return catalyst rows newer than *since_ts*, optionally for a symbol."""
     if symbol:
-        cur = await db.execute(
-            "SELECT * FROM catalysts WHERE timestamp >= ? AND symbol = ? ORDER BY timestamp DESC",
-            (since_ts, symbol),
+        rows = await conn.fetch(
+            "SELECT * FROM catalysts WHERE timestamp >= $1 AND symbol = $2 ORDER BY timestamp DESC",
+            since_ts, symbol,
         )
     else:
-        cur = await db.execute(
-            "SELECT * FROM catalysts WHERE timestamp >= ? ORDER BY timestamp DESC",
-            (since_ts,),
+        rows = await conn.fetch(
+            "SELECT * FROM catalysts WHERE timestamp >= $1 ORDER BY timestamp DESC",
+            since_ts,
         )
-    rows = await cur.fetchall()
-    cols = [d[0] for d in cur.description]
-    return [dict(zip(cols, row)) for row in rows]
+    return [dict(r) for r in rows]
 
 
-async def headline_exists(db: aiosqlite.Connection, headline_hash: str) -> bool:
+async def headline_exists(conn: asyncpg.Connection, headline_hash: str) -> bool:
     """Check if a catalyst with this headline already exists (by exact headline match)."""
-    cur = await db.execute(
-        "SELECT 1 FROM catalysts WHERE headline = ? LIMIT 1",
-        (headline_hash,),
+    row = await conn.fetchrow(
+        "SELECT 1 FROM catalysts WHERE headline = $1 LIMIT 1",
+        headline_hash,
     )
-    return (await cur.fetchone()) is not None
+    return row is not None
 
 
-async def insert_bars(db: aiosqlite.Connection, bars: list[dict]) -> int:
-    """Bulk INSERT OR REPLACE bars. Each bar is a dict with Bar model fields.
+# ---------------------------------------------------------------------------
+# Bars
+# ---------------------------------------------------------------------------
+
+
+async def insert_bars(conn: asyncpg.Connection, bars: list[dict]) -> int:
+    """Bulk upsert bars. Each bar is a dict with Bar model fields.
 
     Returns the number of rows inserted.
     """
     if not bars:
         return 0
-    await db.executemany(
-        """INSERT OR REPLACE INTO bars
-           (symbol, timestamp, timeframe, open, high, low, close, volume, vwap, trade_count)
-           VALUES (:symbol, :timestamp, :timeframe, :open, :high, :low, :close, :volume, :vwap, :trade_count)""",
-        bars,
-    )
-    await db.commit()
+    for bar in bars:
+        await conn.execute(
+            """INSERT INTO bars
+               (symbol, timestamp, timeframe, open, high, low, close, volume, vwap, trade_count)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+               ON CONFLICT (symbol, timestamp, timeframe)
+               DO UPDATE SET open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
+                             close = EXCLUDED.close, volume = EXCLUDED.volume,
+                             vwap = EXCLUDED.vwap, trade_count = EXCLUDED.trade_count""",
+            bar["symbol"], bar["timestamp"], bar["timeframe"],
+            bar["open"], bar["high"], bar["low"], bar["close"],
+            bar["volume"], bar.get("vwap"), bar.get("trade_count"),
+        )
     return len(bars)
 
 
 async def query_bars(
-    db: aiosqlite.Connection,
+    conn: asyncpg.Connection,
     symbol: str,
     timeframe: str,
     since_ts: int | None = None,
     until_ts: int | None = None,
 ) -> list[dict]:
     """Return bar rows for a symbol/timeframe, optionally filtered by timestamp range."""
-    clauses = ["symbol = ?", "timeframe = ?"]
+    clauses = ["symbol = $1", "timeframe = $2"]
     params: list = [symbol, timeframe]
+    idx = 3
     if since_ts is not None:
-        clauses.append("timestamp >= ?")
+        clauses.append(f"timestamp >= ${idx}")
         params.append(since_ts)
+        idx += 1
     if until_ts is not None:
-        clauses.append("timestamp <= ?")
+        clauses.append(f"timestamp <= ${idx}")
         params.append(until_ts)
+        idx += 1
     where = " AND ".join(clauses)
-    cur = await db.execute(
+    rows = await conn.fetch(
         f"SELECT * FROM bars WHERE {where} ORDER BY timestamp ASC",
-        params,
+        *params,
     )
-    rows = await cur.fetchall()
-    cols = [d[0] for d in cur.description]
-    return [dict(zip(cols, row)) for row in rows]
+    return [dict(r) for r in rows]
 
 
 async def get_latest_bar_timestamp(
-    db: aiosqlite.Connection, symbol: str, timeframe: str
+    conn: asyncpg.Connection, symbol: str, timeframe: str
 ) -> int | None:
     """Return the most recent bar timestamp for a symbol/timeframe, or None."""
-    cur = await db.execute(
-        "SELECT MAX(timestamp) FROM bars WHERE symbol = ? AND timeframe = ?",
-        (symbol, timeframe),
+    row = await conn.fetchval(
+        "SELECT MAX(timestamp) FROM bars WHERE symbol = $1 AND timeframe = $2",
+        symbol, timeframe,
     )
-    row = await cur.fetchone()
-    return row[0] if row and row[0] is not None else None
+    return row
 
 
 async def cleanup_old_bars(
-    db: aiosqlite.Connection,
+    conn: asyncpg.Connection,
     now_ts: int,
     retention_1m_days: int = 5,
     retention_5m_days: int = 90,
@@ -233,17 +288,21 @@ async def cleanup_old_bars(
     secs_per_day = 86400
     cutoff_1m = now_ts - retention_1m_days * secs_per_day
     cutoff_5m = now_ts - retention_5m_days * secs_per_day
-    await db.execute(
-        "DELETE FROM bars WHERE timeframe = '1m' AND timestamp < ?", (cutoff_1m,)
+    await conn.execute(
+        "DELETE FROM bars WHERE timeframe = '1m' AND timestamp < $1", cutoff_1m
     )
-    await db.execute(
-        "DELETE FROM bars WHERE timeframe = '5m' AND timestamp < ?", (cutoff_5m,)
+    await conn.execute(
+        "DELETE FROM bars WHERE timeframe = '5m' AND timestamp < $1", cutoff_5m
     )
-    await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Trades
+# ---------------------------------------------------------------------------
 
 
 async def insert_trade(
-    db: aiosqlite.Connection,
+    conn: asyncpg.Connection,
     *,
     symbol: str,
     direction: str,
@@ -262,25 +321,23 @@ async def insert_trade(
     regime: str | None,
     sector: str | None,
 ) -> int:
-    """Insert a completed trade and return its rowid."""
-    cur = await db.execute(
+    """Insert a completed trade and return its id."""
+    row_id: int = await conn.fetchval(
         """INSERT INTO trades
            (symbol, direction, entry_time, entry_price, entry_shares,
             exit_time, exit_price, exit_shares, pnl, pnl_pct,
             signal_score, signal_reason, exit_reason, catalyst_id, regime, sector)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            symbol, direction, entry_time, entry_price, entry_shares,
-            exit_time, exit_price, exit_shares, pnl, pnl_pct,
-            signal_score, signal_reason, exit_reason, catalyst_id, regime, sector,
-        ),
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+           RETURNING id""",
+        symbol, direction, entry_time, entry_price, entry_shares,
+        exit_time, exit_price, exit_shares, pnl, pnl_pct,
+        signal_score, signal_reason, exit_reason, catalyst_id, regime, sector,
     )
-    await db.commit()
-    return cur.lastrowid  # type: ignore[return-value]
+    return row_id
 
 
 async def query_trades(
-    db: aiosqlite.Connection,
+    conn: asyncpg.Connection,
     *,
     since_ts: int | None = None,
     symbol: str | None = None,
@@ -291,58 +348,51 @@ async def query_trades(
     """Query trades with optional filters."""
     clauses: list[str] = []
     params: list = []
+    idx = 1
     if since_ts is not None:
-        clauses.append("exit_time >= ?")
+        clauses.append(f"exit_time >= ${idx}")
         params.append(since_ts)
+        idx += 1
     if symbol is not None:
-        clauses.append("symbol = ?")
+        clauses.append(f"symbol = ${idx}")
         params.append(symbol)
+        idx += 1
     if sector is not None:
-        clauses.append("sector = ?")
+        clauses.append(f"sector = ${idx}")
         params.append(sector)
+        idx += 1
     if regime is not None:
-        clauses.append("regime = ?")
+        clauses.append(f"regime = ${idx}")
         params.append(regime)
+        idx += 1
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-    cur = await db.execute(
-        f"SELECT * FROM trades{where} ORDER BY exit_time DESC LIMIT ?",
-        params + [limit],
+    params.append(limit)
+    rows = await conn.fetch(
+        f"SELECT * FROM trades{where} ORDER BY exit_time DESC LIMIT ${idx}",
+        *params,
     )
-    rows = await cur.fetchall()
-    cols = [d[0] for d in cur.description]
-    return [dict(zip(cols, row)) for row in rows]
+    return [dict(r) for r in rows]
 
 
 async def get_trade_summary(
-    db: aiosqlite.Connection,
+    conn: asyncpg.Connection,
     *,
     since_ts: int,
 ) -> dict:
     """Return aggregate stats: count, total_pnl, win_count, loss_count."""
-    cur = await db.execute(
+    row = await conn.fetchrow(
         """SELECT
                COUNT(*) AS count,
                COALESCE(SUM(pnl), 0.0) AS total_pnl,
                SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS win_count,
                SUM(CASE WHEN pnl <= 0 THEN 1 ELSE 0 END) AS loss_count
            FROM trades
-           WHERE exit_time >= ?""",
-        (since_ts,),
+           WHERE exit_time >= $1""",
+        since_ts,
     )
-    row = await cur.fetchone()
     return {
-        "count": row[0],
-        "total_pnl": row[1],
-        "win_count": row[2] or 0,
-        "loss_count": row[3] or 0,
+        "count": row["count"],
+        "total_pnl": float(row["total_pnl"]),
+        "win_count": row["win_count"] or 0,
+        "loss_count": row["loss_count"] or 0,
     }
-
-
-async def init_db() -> None:
-    """Create all tables and indexes if they don't exist."""
-    db = await get_db()
-    try:
-        await db.executescript(SCHEMA_SQL)
-        await db.commit()
-    finally:
-        await db.close()

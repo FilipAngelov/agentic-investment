@@ -74,9 +74,8 @@ class CatalystEngine:
 
     async def poll_feeds(self) -> list[Catalyst]:
         """Parse all RSS feeds, classify new entries, persist and return them."""
-        db = await get_db()
         new_catalysts: list[Catalyst] = []
-        try:
+        async with get_db() as conn:
             for url in self._feed_urls:
                 try:
                     entries = self._parse_feed(url)
@@ -86,7 +85,7 @@ class CatalystEngine:
 
                 for entry in entries:
                     headline = entry["headline"]
-                    if await headline_exists(db, headline):
+                    if await headline_exists(conn, headline):
                         continue
 
                     classification = await self.classify_catalyst(
@@ -110,11 +109,9 @@ class CatalystEngine:
                         llm_analysis=json.dumps(classification),
                     )
 
-                    row_id = await self.save_catalyst(catalyst, db=db)
+                    row_id = await self.save_catalyst(catalyst, conn=conn)
                     catalyst.id = row_id
                     new_catalysts.append(catalyst)
-        finally:
-            await db.close()
         return new_catalysts
 
     async def classify_catalyst(self, headline: str, summary: str) -> dict[str, Any]:
@@ -147,41 +144,45 @@ class CatalystEngine:
             }
 
     async def save_catalyst(
-        self, catalyst: Catalyst, *, db=None
+        self, catalyst: Catalyst, *, conn=None
     ) -> int:
         """Persist a Catalyst to the DB. Returns row id."""
-        close = False
-        if db is None:
-            db = await get_db()
-            close = True
-        try:
-            return await insert_catalyst(
-                db,
-                timestamp=catalyst.timestamp,
-                symbol=catalyst.symbol,
-                sector=catalyst.sector,
-                headline=catalyst.headline,
-                source=catalyst.source,
-                sentiment=catalyst.sentiment,
-                magnitude=catalyst.magnitude,
-                catalyst_type=catalyst.catalyst_type,
-                raw_text=catalyst.raw_text,
-                llm_analysis=catalyst.llm_analysis,
-            )
-        finally:
-            if close:
-                await db.close()
+        if conn is None:
+            async with get_db() as conn:
+                return await insert_catalyst(
+                    conn,
+                    timestamp=catalyst.timestamp,
+                    symbol=catalyst.symbol,
+                    sector=catalyst.sector,
+                    headline=catalyst.headline,
+                    source=catalyst.source,
+                    sentiment=catalyst.sentiment,
+                    magnitude=catalyst.magnitude,
+                    catalyst_type=catalyst.catalyst_type,
+                    raw_text=catalyst.raw_text,
+                    llm_analysis=catalyst.llm_analysis,
+                )
+        return await insert_catalyst(
+            conn,
+            timestamp=catalyst.timestamp,
+            symbol=catalyst.symbol,
+            sector=catalyst.sector,
+            headline=catalyst.headline,
+            source=catalyst.source,
+            sentiment=catalyst.sentiment,
+            magnitude=catalyst.magnitude,
+            catalyst_type=catalyst.catalyst_type,
+            raw_text=catalyst.raw_text,
+            llm_analysis=catalyst.llm_analysis,
+        )
 
     async def get_recent_catalysts(
         self, symbol: str | None = None, hours: int = 24
     ) -> list[Catalyst]:
         """Return catalysts from the last *hours* hours, optionally for a symbol."""
         since = int(time.time()) - hours * 3600
-        db = await get_db()
-        try:
-            rows = await query_catalysts(db, since_ts=since, symbol=symbol)
-        finally:
-            await db.close()
+        async with get_db() as conn:
+            rows = await query_catalysts(conn, since_ts=since, symbol=symbol)
         return [Catalyst(**r) for r in rows]
 
     def get_catalyst_strength(self, catalysts: list[Catalyst], now_ts: int | None = None) -> float:

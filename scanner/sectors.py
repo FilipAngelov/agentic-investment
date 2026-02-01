@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import time
-from pathlib import Path
 
-import aiosqlite
+import asyncpg
 
 from config.sectors import (
     BENCHMARK_SPY,
@@ -20,8 +19,7 @@ from data.models import SectorSnapshot
 class SectorTracker:
     """Track sector ETF momentum and relative strength."""
 
-    def __init__(self, db_path: Path | None = None) -> None:
-        self.db_path = db_path
+    def __init__(self) -> None:
         self._history: dict[str, list[float]] = {}
         self._timestamps: list[int] = []
         self._latest_prices: dict[str, float] = {}
@@ -195,7 +193,7 @@ class SectorTracker:
         roc20 = (closes[-1] - closes[-21]) / closes[-21]
         return roc5 > roc20
 
-    async def save_snapshots(self, db: aiosqlite.Connection) -> None:
+    async def save_snapshots(self, conn: asyncpg.Connection) -> None:
         """Persist current sector data as SectorSnapshot rows."""
         ts = int(time.time())
         for sector, etf in SECTOR_ETFS.items():
@@ -207,13 +205,16 @@ class SectorTracker:
             mom = self.compute_momentum(etf)
             rs = self.compute_relative_strength(etf)
             vol = self._latest_volumes.get(etf)
-            await db.execute(
-                "INSERT OR REPLACE INTO sector_snapshots "
+            await conn.execute(
+                "INSERT INTO sector_snapshots "
                 "(timestamp, sector, price, change_pct, volume, relative_strength, momentum_score) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (ts, sector, price, change_pct, vol, rs, mom),
+                "VALUES ($1, $2, $3, $4, $5, $6, $7) "
+                "ON CONFLICT (sector, timestamp) "
+                "DO UPDATE SET price = EXCLUDED.price, change_pct = EXCLUDED.change_pct, "
+                "volume = EXCLUDED.volume, relative_strength = EXCLUDED.relative_strength, "
+                "momentum_score = EXCLUDED.momentum_score",
+                ts, sector, price, change_pct, vol, rs, mom,
             )
-        await db.commit()
 
 
 # ---------------------------------------------------------------------------

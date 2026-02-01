@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-import aiosqlite
+import asyncpg
 
 from config.sectors import (
     BENCHMARK_SPY,
@@ -128,7 +128,7 @@ class RegimeDetector:
             "timestamp": int(time.time()),
         }
 
-    async def log_regime(self, db: aiosqlite.Connection) -> None:
+    async def log_regime(self, conn: asyncpg.Connection) -> None:
         """Persist current regime to regime_log table."""
         if self._current_regime is None:
             return
@@ -136,13 +136,12 @@ class RegimeDetector:
         sma_data = self.get_spy_vs_sma()
         vix = self.get_vix()
         factor = self.get_regime_factor()
-        await db.execute(
+        await conn.execute(
             "INSERT INTO regime_log "
             "(timestamp, regime, spy_vs_20sma, spy_vs_50sma, vix, regime_factor) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (ts, self._current_regime, sma_data["spy_vs_20sma"], sma_data["spy_vs_50sma"], vix, factor),
+            "VALUES ($1, $2, $3, $4, $5, $6)",
+            ts, self._current_regime, sma_data["spy_vs_20sma"], sma_data["spy_vs_50sma"], vix, factor,
         )
-        await db.commit()
 
     def get_current_regime(self) -> RegimeType | None:
         return self._current_regime

@@ -36,7 +36,7 @@ Mac Mini (or VPS later)
 │   ├── Risk management
 │   ├── Position sizing
 │   └── Logging / notifications (→ WhatsApp via Cdius)
-└── Data store (SQLite or Postgres)
+└── Data store (PostgreSQL)
 ```
 
 ## Environments
@@ -885,7 +885,7 @@ agentic-investment/
 │   ├── notify.py            # Notifications (WhatsApp)
 │   └── analytics.py         # Performance analytics
 ├── data/
-│   ├── store.py             # Data persistence (SQLite)
+│   ├── store.py             # Data persistence (PostgreSQL/asyncpg)
 │   └── models.py            # Data models
 ├── main.py                  # Entry point / scheduler
 ├── backtest.py              # Backtesting harness
@@ -1009,7 +1009,7 @@ Report out-of-sample Sharpe. If in-sample Sharpe > 2× out-of-sample Sharpe, the
                         │
                         ▼
 ┌──────────────────────────────────────────────────────────┐
-│                SQLite Database (data/market.db)            │
+│              PostgreSQL Database (asyncpg)                  │
 │  See schema below                                         │
 └───────────────────────┬──────────────────────────────────┘
                         │
@@ -1027,21 +1027,21 @@ Report out-of-sample Sharpe. If in-sample Sharpe > 2× out-of-sample Sharpe, the
 └──────────────────────────────────────────────────────────┘
 ```
 
-### SQLite Schema
+### PostgreSQL Schema
 
 ```sql
 -- Price data (OHLCV)
 CREATE TABLE bars (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,
-    timestamp INTEGER NOT NULL,        -- Unix epoch (seconds)
+    timestamp BIGINT NOT NULL,          -- Unix epoch (seconds)
     timeframe TEXT NOT NULL,            -- '1m', '5m', '1d'
-    open REAL NOT NULL,
-    high REAL NOT NULL,
-    low REAL NOT NULL,
-    close REAL NOT NULL,
-    volume INTEGER NOT NULL,
-    vwap REAL,
+    open DOUBLE PRECISION NOT NULL,
+    high DOUBLE PRECISION NOT NULL,
+    low DOUBLE PRECISION NOT NULL,
+    close DOUBLE PRECISION NOT NULL,
+    volume BIGINT NOT NULL,
+    vwap DOUBLE PRECISION,
     trade_count INTEGER,
     UNIQUE(symbol, timestamp, timeframe)
 );
@@ -1050,26 +1050,26 @@ CREATE INDEX idx_bars_ts ON bars(timestamp);
 
 -- Sector ETF tracking
 CREATE TABLE sector_snapshots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp INTEGER NOT NULL,
+    id SERIAL PRIMARY KEY,
+    timestamp BIGINT NOT NULL,
     sector TEXT NOT NULL,               -- 'XLK', 'XLF', etc.
-    price REAL NOT NULL,
-    change_pct REAL,
-    volume INTEGER,
-    relative_strength REAL,             -- vs SPY
-    momentum_score REAL,
+    price DOUBLE PRECISION NOT NULL,
+    change_pct DOUBLE PRECISION,
+    volume BIGINT,
+    relative_strength DOUBLE PRECISION, -- vs SPY
+    momentum_score DOUBLE PRECISION,
     UNIQUE(sector, timestamp)
 );
 
 -- News & catalysts
 CREATE TABLE catalysts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp INTEGER NOT NULL,
+    id SERIAL PRIMARY KEY,
+    timestamp BIGINT NOT NULL,
     symbol TEXT,                         -- NULL if sector-wide
     sector TEXT,
     headline TEXT NOT NULL,
     source TEXT NOT NULL,
-    sentiment REAL,                      -- -1.0 to +1.0
+    sentiment DOUBLE PRECISION,          -- -1.0 to +1.0
     magnitude INTEGER,                  -- 1-5 (CSS score)
     catalyst_type TEXT,                 -- 'earnings', 'fda', 'upgrade', etc.
     raw_text TEXT,
@@ -1079,18 +1079,18 @@ CREATE INDEX idx_catalysts_sym ON catalysts(symbol, timestamp);
 
 -- Trade log
 CREATE TABLE trades (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,
     direction TEXT NOT NULL,            -- 'LONG' or 'SHORT'
-    entry_time INTEGER NOT NULL,
-    entry_price REAL NOT NULL,
+    entry_time BIGINT NOT NULL,
+    entry_price DOUBLE PRECISION NOT NULL,
     entry_shares INTEGER NOT NULL,
-    exit_time INTEGER,
-    exit_price REAL,
+    exit_time BIGINT,
+    exit_price DOUBLE PRECISION,
     exit_shares INTEGER,
-    pnl REAL,
-    pnl_pct REAL,
-    signal_score REAL,
+    pnl DOUBLE PRECISION,
+    pnl_pct DOUBLE PRECISION,
+    signal_score DOUBLE PRECISION,
     signal_reason TEXT,                 -- JSON: what triggered entry
     exit_reason TEXT,                   -- 'trailing_stop', 'time_decay', etc.
     catalyst_id INTEGER REFERENCES catalysts(id),
@@ -1100,26 +1100,26 @@ CREATE TABLE trades (
 
 -- Account snapshots (for equity curve)
 CREATE TABLE account_snapshots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp INTEGER NOT NULL,
-    net_liquidation REAL NOT NULL,
-    cash REAL,
-    buying_power REAL,
+    id SERIAL PRIMARY KEY,
+    timestamp BIGINT NOT NULL,
+    net_liquidation DOUBLE PRECISION NOT NULL,
+    cash DOUBLE PRECISION,
+    buying_power DOUBLE PRECISION,
     day_trades_remaining INTEGER,
-    daily_pnl REAL,
+    daily_pnl DOUBLE PRECISION,
     open_positions INTEGER,
-    portfolio_heat REAL                 -- total % at risk
+    portfolio_heat DOUBLE PRECISION     -- total % at risk
 );
 
 -- Market regime log
 CREATE TABLE regime_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp INTEGER NOT NULL,
+    id SERIAL PRIMARY KEY,
+    timestamp BIGINT NOT NULL,
     regime TEXT NOT NULL,               -- 'strong_bull', 'bull', 'choppy', 'bear', 'crisis'
-    spy_vs_20sma REAL,
-    spy_vs_50sma REAL,
-    vix REAL,
-    regime_factor REAL
+    spy_vs_20sma DOUBLE PRECISION,
+    spy_vs_50sma DOUBLE PRECISION,
+    vix DOUBLE PRECISION,
+    regime_factor DOUBLE PRECISION
 );
 ```
 
@@ -1138,7 +1138,7 @@ CREATE TABLE regime_log (
 
 **Minimum history to load at startup:** 60 trading days of daily bars (covers all indicators with warm-up). For intraday: 5 days of 1-min bars at minimum.
 
-**On first boot:** Fetch 2 years of daily bars for the current scan universe (~200 tickers × 500 bars = 100K rows). IBKR rate limit: ~50 historical data requests/sec → full fetch in ~1 hour. Cache in SQLite. Incremental updates thereafter.
+**On first boot:** Fetch 2 years of daily bars for the current scan universe (~200 tickers × 500 bars = 100K rows). IBKR rate limit: ~50 historical data requests/sec → full fetch in ~1 hour. Cache in PostgreSQL. Incremental updates thereafter.
 
 ### Data Retention Policy
 
@@ -1151,7 +1151,7 @@ CREATE TABLE regime_log (
 | Trade log | Indefinite | Negligible |
 | Account snapshots | Indefinite | Negligible |
 
-**Total disk:** < 10 GB. SQLite handles this trivially. No need for Postgres unless we scale to 1000+ tickers or sub-second bars.
+**Total disk:** < 10 GB. PostgreSQL handles this with room to scale to 1000+ tickers or sub-second bars.
 
 ### Data Integrity Checks
 
@@ -1234,7 +1234,7 @@ If ANY of these occur in live trading, revert to paper immediately:
 | **IB Gateway crash** | Total system down | Process monitor (systemd/launchd watchdog) | Auto-restart Gateway. Bot waits for reconnection. If restart fails 3×, alert Filip + halt. |
 | **Mac Mini power loss** | Everything dies | UPS with USB monitoring (if available) | On boot: reconcile positions with IBKR (query open orders/positions). Cancel stale orders. Verify stops are in place. |
 | **Internet outage** | Same as Gateway disconnect | Ping test to 8.8.8.8 every 30s | Alert via cellular backup if available. Otherwise, IBKR server-side stops protect positions. |
-| **SQLite corruption** | Loss of trade history, indicator state | WAL mode + daily backup + integrity check | Restore from backup. Indicator state rebuilds from raw bars. Trade log is also in IBKR's own records. |
+| **PostgreSQL down** | Loss of trade history, indicator state | Daily pg_dump backup + health checks | Restore from backup. Indicator state rebuilds from raw bars. Trade log is also in IBKR's own records. |
 | **LLM API down (OpenAI/Anthropic)** | No news sentiment scoring | HTTP timeout + retry with backoff | Degrade gracefully: skip news sentiment, trade on technical signals only. Log degraded mode. |
 
 ### Market Events

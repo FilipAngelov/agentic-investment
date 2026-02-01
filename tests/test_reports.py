@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -84,6 +85,16 @@ def _pos(symbol, direction="LONG", shares=10, entry=150.0, current=155.0, upnl=5
     )
 
 
+def _mock_get_db():
+    """Return an async context manager that yields a MagicMock connection."""
+    mock_conn = AsyncMock()
+
+    @asynccontextmanager
+    async def _ctx():
+        yield mock_conn
+    return _ctx, mock_conn
+
+
 # ── build_daily_report ───────────────────────────────────────────
 
 
@@ -156,62 +167,56 @@ class TestBuildWeeklyReport:
 
 
 class TestGenerateDaily:
-    @patch("portfolio.reports.aiosqlite")
     @patch("portfolio.reports.query_trades", new_callable=AsyncMock)
     @patch("portfolio.reports.compute_metrics")
-    async def test_generate(self, mock_cm, mock_qt, mock_aio):
-        mock_db = AsyncMock()
-        mock_aio.connect = AsyncMock(return_value=mock_db)
-        mock_aio.Row = None
+    async def test_generate(self, mock_cm, mock_qt):
         mock_qt.return_value = _sample_trades()
         mock_cm.return_value = _sample_metrics()
         snap = MagicMock(matches=True)
         tracker = _make_tracker()
         risk = _make_risk()
         recon = _make_reconciler(history=[snap])
+        get_db_ctx, _ = _mock_get_db()
 
-        report = await generate_daily_report(tracker, risk, recon, ":memory:")
+        with patch("portfolio.reports.get_db", get_db_ctx):
+            report = await generate_daily_report(tracker, risk, recon)
         assert "DAILY REPORT" in report
         mock_qt.assert_called_once()
 
 
 class TestGenerateWeekly:
-    @patch("portfolio.reports.aiosqlite")
     @patch("portfolio.reports.query_trades", new_callable=AsyncMock)
     @patch("portfolio.reports.compute_metrics")
     @patch("portfolio.reports.compute_metrics_by_group")
-    async def test_generate(self, mock_sector, mock_cm, mock_qt, mock_aio):
-        mock_db = AsyncMock()
-        mock_aio.connect = AsyncMock(return_value=mock_db)
-        mock_aio.Row = None
+    async def test_generate(self, mock_sector, mock_cm, mock_qt):
         mock_qt.return_value = _sample_trades()
         mock_cm.return_value = _sample_metrics()
         mock_sector.return_value = {"tech": {"total_pnl": 73.0, "count": 3, "win_rate": 0.667}}
         tracker = _make_tracker()
         risk = _make_risk()
         recon = _make_reconciler(history=[])
+        get_db_ctx, _ = _mock_get_db()
 
-        report = await generate_weekly_report(tracker, risk, recon, ":memory:")
+        with patch("portfolio.reports.get_db", get_db_ctx):
+            report = await generate_weekly_report(tracker, risk, recon)
         assert "WEEKLY REPORT" in report
 
 
 class TestSendDaily:
     @patch("portfolio.reports.send_whatsapp", new_callable=AsyncMock)
-    @patch("portfolio.reports.aiosqlite")
     @patch("portfolio.reports.query_trades", new_callable=AsyncMock)
     @patch("portfolio.reports.compute_metrics")
-    async def test_send(self, mock_cm, mock_qt, mock_aio, mock_wa):
-        mock_db = AsyncMock()
-        mock_aio.connect = AsyncMock(return_value=mock_db)
-        mock_aio.Row = None
+    async def test_send(self, mock_cm, mock_qt, mock_wa):
         mock_qt.return_value = []
         mock_cm.return_value = _sample_metrics()
         mock_wa.return_value = True
         tracker = _make_tracker()
         risk = _make_risk()
         recon = _make_reconciler()
+        get_db_ctx, _ = _mock_get_db()
 
-        report = await send_daily_report(tracker, risk, recon, ":memory:")
+        with patch("portfolio.reports.get_db", get_db_ctx):
+            report = await send_daily_report(tracker, risk, recon)
         assert "DAILY REPORT" in report
         mock_wa.assert_called_once()
 
@@ -220,46 +225,42 @@ class TestSendDaily:
 
 
 class TestDashboardReports:
-    @patch("portfolio.reports.aiosqlite")
     @patch("portfolio.reports.query_trades", new_callable=AsyncMock)
     @patch("portfolio.reports.compute_metrics")
-    def test_daily_endpoint(self, mock_cm, mock_qt, mock_aio):
-        mock_db = AsyncMock()
-        mock_aio.connect = AsyncMock(return_value=mock_db)
-        mock_aio.Row = None
+    def test_daily_endpoint(self, mock_cm, mock_qt):
         mock_qt.return_value = []
         mock_cm.return_value = _sample_metrics()
-        app = create_app(
-            tracker=_make_tracker(),
-            risk_controller=_make_risk(),
-            reconciler=_make_reconciler(),
-            db_path=":memory:",
-        )
-        resp = TestClient(app).get("/api/reports/daily")
+        get_db_ctx, _ = _mock_get_db()
+        with patch("portfolio.reports.get_db", get_db_ctx), \
+             patch("portfolio.dashboard.get_db", get_db_ctx):
+            app = create_app(
+                tracker=_make_tracker(),
+                risk_controller=_make_risk(),
+                reconciler=_make_reconciler(),
+            )
+            resp = TestClient(app).get("/api/reports/daily")
         assert resp.status_code == 200
         data = resp.json()
         assert "report" in data
         assert "DAILY REPORT" in data["report"]
         assert "timestamp" in data
 
-    @patch("portfolio.reports.aiosqlite")
     @patch("portfolio.reports.query_trades", new_callable=AsyncMock)
     @patch("portfolio.reports.compute_metrics")
     @patch("portfolio.reports.compute_metrics_by_group")
-    def test_weekly_endpoint(self, mock_sector, mock_cm, mock_qt, mock_aio):
-        mock_db = AsyncMock()
-        mock_aio.connect = AsyncMock(return_value=mock_db)
-        mock_aio.Row = None
+    def test_weekly_endpoint(self, mock_sector, mock_cm, mock_qt):
         mock_qt.return_value = []
         mock_cm.return_value = _sample_metrics()
         mock_sector.return_value = {}
-        app = create_app(
-            tracker=_make_tracker(),
-            risk_controller=_make_risk(),
-            reconciler=_make_reconciler(),
-            db_path=":memory:",
-        )
-        resp = TestClient(app).get("/api/reports/weekly")
+        get_db_ctx, _ = _mock_get_db()
+        with patch("portfolio.reports.get_db", get_db_ctx), \
+             patch("portfolio.dashboard.get_db", get_db_ctx):
+            app = create_app(
+                tracker=_make_tracker(),
+                risk_controller=_make_risk(),
+                reconciler=_make_reconciler(),
+            )
+            resp = TestClient(app).get("/api/reports/weekly")
         assert resp.status_code == 200
         data = resp.json()
         assert "report" in data

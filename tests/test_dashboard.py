@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -57,6 +58,16 @@ def _make_reconciler(halted: bool = False, history: list | None = None) -> Magic
     return rec
 
 
+def _mock_get_db():
+    """Return an async context manager that yields a MagicMock connection."""
+    mock_conn = AsyncMock()
+
+    @asynccontextmanager
+    async def _ctx():
+        yield mock_conn
+    return _ctx, mock_conn
+
+
 @pytest.fixture
 def client():
     """TestClient with default mocks (no positions, not halted)."""
@@ -64,7 +75,6 @@ def client():
         tracker=_make_tracker(),
         risk_controller=_make_risk(),
         reconciler=_make_reconciler(),
-        db_path=":memory:",
     )
     return TestClient(app)
 
@@ -89,7 +99,6 @@ class TestHealth:
             tracker=_make_tracker(),
             risk_controller=_make_risk(halted=True),
             reconciler=_make_reconciler(),
-            db_path=":memory:",
         )
         resp = TestClient(app).get("/api/health")
         assert resp.json()["halted"] is True
@@ -99,7 +108,6 @@ class TestHealth:
             tracker=_make_tracker(),
             risk_controller=_make_risk(),
             reconciler=_make_reconciler(halted=True),
-            db_path=":memory:",
         )
         resp = TestClient(app).get("/api/health")
         assert resp.json()["halted"] is True
@@ -117,7 +125,6 @@ class TestPositions:
             tracker=_make_tracker({"AAPL": pos}),
             risk_controller=_make_risk(),
             reconciler=_make_reconciler(),
-            db_path=":memory:",
         )
         resp = TestClient(app).get("/api/positions")
         data = resp.json()
@@ -143,13 +150,14 @@ class TestMetrics:
     def test_metrics(self, mock_compute, mock_qt):
         mock_qt.return_value = [{"pnl": 10.0, "exit_time": 100}]
         mock_compute.return_value = {"sharpe_ratio": 1.5, "win_rate": 0.6}
-        app = create_app(
-            tracker=_make_tracker(),
-            risk_controller=_make_risk(),
-            reconciler=_make_reconciler(),
-            db_path=":memory:",
-        )
-        resp = TestClient(app).get("/api/metrics")
+        get_db_ctx, mock_conn = _mock_get_db()
+        with patch("portfolio.dashboard.get_db", get_db_ctx):
+            app = create_app(
+                tracker=_make_tracker(),
+                risk_controller=_make_risk(),
+                reconciler=_make_reconciler(),
+            )
+            resp = TestClient(app).get("/api/metrics")
         assert resp.status_code == 200
         assert resp.json()["sharpe_ratio"] == 1.5
         mock_compute.assert_called_once()
@@ -159,13 +167,14 @@ class TestMetrics:
     def test_metrics_sectors(self, mock_group, mock_qt):
         mock_qt.return_value = [{"pnl": 10.0, "exit_time": 100, "sector": "tech"}]
         mock_group.return_value = {"tech": {"win_rate": 0.7}}
-        app = create_app(
-            tracker=_make_tracker(),
-            risk_controller=_make_risk(),
-            reconciler=_make_reconciler(),
-            db_path=":memory:",
-        )
-        resp = TestClient(app).get("/api/metrics/sectors")
+        get_db_ctx, mock_conn = _mock_get_db()
+        with patch("portfolio.dashboard.get_db", get_db_ctx):
+            app = create_app(
+                tracker=_make_tracker(),
+                risk_controller=_make_risk(),
+                reconciler=_make_reconciler(),
+            )
+            resp = TestClient(app).get("/api/metrics/sectors")
         assert resp.status_code == 200
         assert "tech" in resp.json()
 
@@ -181,16 +190,16 @@ class TestTrades:
     @patch("portfolio.dashboard.query_trades", new_callable=AsyncMock)
     def test_trades_default(self, mock_qt):
         mock_qt.return_value = [{"symbol": "AAPL", "pnl": 25.0}]
-        app = create_app(
-            tracker=_make_tracker(),
-            risk_controller=_make_risk(),
-            reconciler=_make_reconciler(),
-            db_path=":memory:",
-        )
-        resp = TestClient(app).get("/api/trades")
+        get_db_ctx, mock_conn = _mock_get_db()
+        with patch("portfolio.dashboard.get_db", get_db_ctx):
+            app = create_app(
+                tracker=_make_tracker(),
+                risk_controller=_make_risk(),
+                reconciler=_make_reconciler(),
+            )
+            resp = TestClient(app).get("/api/trades")
         assert resp.status_code == 200
         assert len(resp.json()) == 1
-        # Verify limit default
         mock_qt.assert_called_once()
         _, kwargs = mock_qt.call_args
         assert kwargs["limit"] == 50
@@ -198,13 +207,14 @@ class TestTrades:
     @patch("portfolio.dashboard.query_trades", new_callable=AsyncMock)
     def test_trades_with_params(self, mock_qt):
         mock_qt.return_value = []
-        app = create_app(
-            tracker=_make_tracker(),
-            risk_controller=_make_risk(),
-            reconciler=_make_reconciler(),
-            db_path=":memory:",
-        )
-        resp = TestClient(app).get("/api/trades?limit=10&symbol=TSLA&sector=auto")
+        get_db_ctx, mock_conn = _mock_get_db()
+        with patch("portfolio.dashboard.get_db", get_db_ctx):
+            app = create_app(
+                tracker=_make_tracker(),
+                risk_controller=_make_risk(),
+                reconciler=_make_reconciler(),
+            )
+            resp = TestClient(app).get("/api/trades?limit=10&symbol=TSLA&sector=auto")
         assert resp.status_code == 200
         _, kwargs = mock_qt.call_args
         assert kwargs["limit"] == 10
@@ -236,7 +246,6 @@ class TestReconciliation:
             tracker=_make_tracker(),
             risk_controller=_make_risk(),
             reconciler=_make_reconciler(history=snaps),
-            db_path=":memory:",
         )
         resp = TestClient(app).get("/api/reconciliation")
         data = resp.json()

@@ -32,7 +32,7 @@
 - `signals/` — Technical analysis, composite scoring
 - `execution/` — DTBP guard, sizing, orders, risk management
 - `portfolio/` — Position tracking, notifications, analytics
-- `data/` — SQLite persistence, data models, ingestion, indicators
+- `data/` — PostgreSQL persistence (asyncpg), data models, ingestion, indicators
 - `tests/` — Unit tests
 - `main.py` — Entry point / orchestrator
 - `backtest.py` — Backtesting harness

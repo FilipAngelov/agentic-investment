@@ -3,23 +3,10 @@
 from __future__ import annotations
 
 import pytest
-import aiosqlite
 
-from data.store import SCHEMA_SQL, insert_trade, query_trades, get_trade_summary
+from data.store import insert_trade, query_trades, get_trade_summary
 from data.models import ClosedTrade, Signal
 from portfolio.trade_logger import TradeLogger, EntryContext
-
-
-@pytest.fixture
-async def db():
-    """In-memory SQLite database with schema applied."""
-    conn = await aiosqlite.connect(":memory:")
-    await conn.execute("PRAGMA foreign_keys=ON")
-    conn.row_factory = aiosqlite.Row
-    await conn.executescript(SCHEMA_SQL)
-    await conn.commit()
-    yield conn
-    await conn.close()
 
 
 def _make_signal(**overrides) -> Signal:
@@ -89,13 +76,10 @@ class TestRecordExit:
     @pytest.mark.asyncio
     async def test_persists_trade_with_context(self, db):
         logger = TradeLogger()
-        # Insert a catalyst row so FK is satisfied
-        cur = await db.execute(
-            "INSERT INTO catalysts (timestamp, headline, source) VALUES (?, ?, ?)",
-            (1000, "test", "test"),
+        cat_id = await db.fetchval(
+            "INSERT INTO catalysts (timestamp, headline, source) VALUES ($1, $2, $3) RETURNING id",
+            1000, "test", "test",
         )
-        await db.commit()
-        cat_id = cur.lastrowid
         logger.record_entry(_make_signal(), shares=10, catalyst_id=cat_id)
         closed = _make_closed()
         row_id = await logger.record_exit(db, closed, "trailing_stop")
@@ -125,11 +109,8 @@ class TestRecordExit:
     async def test_partial_exit_preserves_context(self, db):
         logger = TradeLogger()
         logger.record_entry(_make_signal(), shares=20)
-        # First partial exit
         await logger.record_exit(db, _make_closed(shares=10), "partial_exit_tier_1")
-        # Context still present
         assert "AAPL" in logger._entry_context
-        # Second partial exit
         await logger.record_exit(db, _make_closed(shares=10), "partial_exit_tier_2")
         rows = await query_trades(db)
         assert len(rows) == 2

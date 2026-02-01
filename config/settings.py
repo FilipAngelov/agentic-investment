@@ -12,7 +12,7 @@ load_dotenv()
 # Paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STARTING_PORTFOLIO_PATH = PROJECT_ROOT / "config" / "starting_portfolio.csv"
-DB_PATH = PROJECT_ROOT / "market.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost/agentic_investment")
 
 
 @dataclass(frozen=True)

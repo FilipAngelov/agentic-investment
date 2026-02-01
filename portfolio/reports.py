@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-import aiosqlite
-
-from data.store import query_trades
+from data.store import get_db, query_trades
 from portfolio.analytics import compute_metrics, compute_metrics_by_group
 from portfolio.notify import send_whatsapp
 
@@ -175,17 +173,12 @@ async def generate_daily_report(
     tracker,
     risk_controller,
     reconciler,
-    db_path: str,
     equity: float = 10_000.0,
 ) -> str:
     """Fetch today's trades, compute metrics, build daily report."""
     since = _start_of_today()
-    db = await aiosqlite.connect(db_path)
-    db.row_factory = aiosqlite.Row
-    try:
-        trades = await query_trades(db, since_ts=since)
-    finally:
-        await db.close()
+    async with get_db() as conn:
+        trades = await query_trades(conn, since_ts=since)
 
     metrics = compute_metrics(trades, equity)
     recon_ok = bool(reconciler.history and reconciler.history[-1].matches)
@@ -196,17 +189,12 @@ async def generate_weekly_report(
     tracker,
     risk_controller,
     reconciler,
-    db_path: str,
     equity: float = 10_000.0,
 ) -> str:
     """Fetch last 7 days of trades, compute metrics + sector breakdown, build weekly report."""
     since = _start_of_week()
-    db = await aiosqlite.connect(db_path)
-    db.row_factory = aiosqlite.Row
-    try:
-        trades = await query_trades(db, since_ts=since)
-    finally:
-        await db.close()
+    async with get_db() as conn:
+        trades = await query_trades(conn, since_ts=since)
 
     metrics = compute_metrics(trades, equity)
     sector_metrics = compute_metrics_by_group(trades, equity, "sector")
@@ -214,18 +202,18 @@ async def generate_weekly_report(
 
 
 async def send_daily_report(
-    tracker, risk_controller, reconciler, db_path: str, equity: float = 10_000.0
+    tracker, risk_controller, reconciler, equity: float = 10_000.0
 ) -> str:
     """Generate daily report and send via WhatsApp. Returns the report text."""
-    report = await generate_daily_report(tracker, risk_controller, reconciler, db_path, equity)
+    report = await generate_daily_report(tracker, risk_controller, reconciler, equity)
     await send_whatsapp(report)
     return report
 
 
 async def send_weekly_report(
-    tracker, risk_controller, reconciler, db_path: str, equity: float = 10_000.0
+    tracker, risk_controller, reconciler, equity: float = 10_000.0
 ) -> str:
     """Generate weekly report and send via WhatsApp. Returns the report text."""
-    report = await generate_weekly_report(tracker, risk_controller, reconciler, db_path, equity)
+    report = await generate_weekly_report(tracker, risk_controller, reconciler, equity)
     await send_whatsapp(report)
     return report

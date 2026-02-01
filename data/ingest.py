@@ -15,7 +15,7 @@ from data.models import Bar, TimeframeType
 from data.store import get_latest_bar_timestamp, insert_bars
 
 if TYPE_CHECKING:
-    import aiosqlite
+    import asyncpg
     from ib_async import IB
 
 logger = logging.getLogger(__name__)
@@ -190,7 +190,7 @@ async def fetch_bars(
 
 async def sync_symbol(
     ib: IB,
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
     symbol: str,
     timeframe: TimeframeType,
     lookback_days: int,
@@ -230,7 +230,7 @@ def _lookback_for_timeframe(timeframe: TimeframeType) -> int:
 
 async def sync_universe(
     ib: IB,
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
     symbols: list[str],
     timeframes: list[TimeframeType] | None = None,
 ) -> dict[str, int]:
@@ -265,7 +265,7 @@ async def sync_universe(
     return results
 
 
-async def run_cleanup(db: aiosqlite.Connection) -> None:
+async def run_cleanup(db: asyncpg.Connection) -> None:
     """Delete expired intraday bars per retention policy."""
     from data.store import cleanup_old_bars
 
