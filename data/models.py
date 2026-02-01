@@ -327,6 +327,17 @@ class StopUpdate(BaseModel):
     regime_factor: float
 
 
+class PartialExitSignal(BaseModel):
+    """Recommendation to partially close a position."""
+
+    symbol: str
+    direction: DirectionType
+    tier: int  # 1 or 2
+    shares_to_sell: int
+    profit_atr: float  # current profit in ATR units
+    limit_price: float  # current price for the exit order
+
+
 class ReconciliationResult(BaseModel):
     """Result of bot + protected vs IBKR reconciliation."""
 
