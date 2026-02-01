@@ -168,6 +168,80 @@ async def headline_exists(db: aiosqlite.Connection, headline_hash: str) -> bool:
     return (await cur.fetchone()) is not None
 
 
+async def insert_bars(db: aiosqlite.Connection, bars: list[dict]) -> int:
+    """Bulk INSERT OR REPLACE bars. Each bar is a dict with Bar model fields.
+
+    Returns the number of rows inserted.
+    """
+    if not bars:
+        return 0
+    await db.executemany(
+        """INSERT OR REPLACE INTO bars
+           (symbol, timestamp, timeframe, open, high, low, close, volume, vwap, trade_count)
+           VALUES (:symbol, :timestamp, :timeframe, :open, :high, :low, :close, :volume, :vwap, :trade_count)""",
+        bars,
+    )
+    await db.commit()
+    return len(bars)
+
+
+async def query_bars(
+    db: aiosqlite.Connection,
+    symbol: str,
+    timeframe: str,
+    since_ts: int | None = None,
+    until_ts: int | None = None,
+) -> list[dict]:
+    """Return bar rows for a symbol/timeframe, optionally filtered by timestamp range."""
+    clauses = ["symbol = ?", "timeframe = ?"]
+    params: list = [symbol, timeframe]
+    if since_ts is not None:
+        clauses.append("timestamp >= ?")
+        params.append(since_ts)
+    if until_ts is not None:
+        clauses.append("timestamp <= ?")
+        params.append(until_ts)
+    where = " AND ".join(clauses)
+    cur = await db.execute(
+        f"SELECT * FROM bars WHERE {where} ORDER BY timestamp ASC",
+        params,
+    )
+    rows = await cur.fetchall()
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, row)) for row in rows]
+
+
+async def get_latest_bar_timestamp(
+    db: aiosqlite.Connection, symbol: str, timeframe: str
+) -> int | None:
+    """Return the most recent bar timestamp for a symbol/timeframe, or None."""
+    cur = await db.execute(
+        "SELECT MAX(timestamp) FROM bars WHERE symbol = ? AND timeframe = ?",
+        (symbol, timeframe),
+    )
+    row = await cur.fetchone()
+    return row[0] if row and row[0] is not None else None
+
+
+async def cleanup_old_bars(
+    db: aiosqlite.Connection,
+    now_ts: int,
+    retention_1m_days: int = 5,
+    retention_5m_days: int = 90,
+) -> None:
+    """Delete expired intraday bars based on retention policy."""
+    secs_per_day = 86400
+    cutoff_1m = now_ts - retention_1m_days * secs_per_day
+    cutoff_5m = now_ts - retention_5m_days * secs_per_day
+    await db.execute(
+        "DELETE FROM bars WHERE timeframe = '1m' AND timestamp < ?", (cutoff_1m,)
+    )
+    await db.execute(
+        "DELETE FROM bars WHERE timeframe = '5m' AND timestamp < ?", (cutoff_5m,)
+    )
+    await db.commit()
+
+
 async def init_db() -> None:
     """Create all tables and indexes if they don't exist."""
     db = await get_db()

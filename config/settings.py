@@ -125,3 +125,20 @@ risk_config = RiskConfig()
 notify_config = NotifyConfig()
 llm_config = LLMConfig()
 news_config = NewsConfig()
+
+
+@dataclass(frozen=True)
+class IngestConfig:
+    """Historical bar ingestion settings."""
+
+    max_requests_per_sec: int = 45
+    pacing_delay_sec: float = 0.05
+    daily_lookback_days: int = 500
+    intraday_5m_lookback_days: int = 5
+    intraday_15m_lookback_days: int = 5
+    retention_1m_days: int = 5
+    retention_5m_days: int = 90
+    max_retries: int = 3
+
+
+ingest_config = IngestConfig()
