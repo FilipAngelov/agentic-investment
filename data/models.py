@@ -249,3 +249,59 @@ class Position(BaseModel):
     stop_price: float
     unrealized_pnl: float
     sector: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Pre-trade compliance models
+# ---------------------------------------------------------------------------
+
+
+class AccountState(BaseModel):
+    """IBKR account fields fetched once per trade cycle."""
+
+    net_liquidation: float
+    total_cash_value: float
+    buying_power: float
+    available_funds: float
+    excess_liquidity: float
+    init_margin_req: float
+    maint_margin_req: float
+    sma: float
+    day_trades_remaining: int  # -1 = unlimited (PDT qualified)
+    daily_pnl: float = 0.0
+
+
+class ProposedOrder(BaseModel):
+    """What the guard evaluates before submission."""
+
+    symbol: str
+    direction: DirectionType
+    shares: int
+    limit_price: float
+    stop_price: float
+    sector: str | None = None
+    is_closing: bool = False
+    opened_today: bool = False  # for day-trade detection
+
+    @field_validator("shares")
+    @classmethod
+    def shares_positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("shares must be > 0")
+        return v
+
+
+class PreTradeResult(BaseModel):
+    """Result of pre-trade compliance check."""
+
+    approved: bool
+    reason: str = ""
+    checks_passed: list[str] = []
+    checks_failed: list[str] = []
+
+
+class ReconciliationResult(BaseModel):
+    """Result of bot + protected vs IBKR reconciliation."""
+
+    matches: bool
+    mismatches: list[str] = []
