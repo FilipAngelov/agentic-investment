@@ -8,13 +8,13 @@ Phased development plan for the Agentic Investment trading system. Each sub-task
 
 | Task | Description | Deliverable |
 |------|-------------|-------------|
-| 0.1 | IBKR paper account + IB Gateway setup | Manual — Gateway running on Mac Mini, paper mode |
-| 0.2 | Project scaffolding — Poetry, pyproject.toml, directory structure | This commit |
-| 0.3 | Basic ib_async connection — connect to Gateway, fetch account info | `main.py` prints account summary |
-| 0.4 | Config module — settings, env vars, `starting_portfolio.csv` loader | `config/settings.py` tested |
-| 0.5 | Protected positions guard — load CSV, enforce sell protection | Unit tests passing |
-| 0.6 | SQLite setup — create schema (bars, catalysts, trades, account_snapshots, regime_log, sector_snapshots) | `data/store.py` with migrations |
-| 0.7 | Data models (Pydantic or dataclasses for Bar, Trade, Signal, Position, AccountState) | `data/models.py` tested |
+| ~~0.1~~ | ~~IBKR paper account + IB Gateway setup~~ | ~~Manual — Gateway running on Mac Mini, paper mode~~ ✅ |
+| ~~0.2~~ | ~~Project scaffolding — Poetry, pyproject.toml, directory structure~~ | ~~This commit~~ ✅ |
+| ~~0.3~~ | ~~Basic ib_async connection — connect to Gateway, fetch account info~~ | ~~`main.py` prints account summary~~ ✅ |
+| ~~0.4~~ | ~~Config module — settings, env vars, `starting_portfolio.csv` loader~~ | ~~`config/settings.py` tested~~ ✅ |
+| ~~0.5~~ | ~~Protected positions guard — load CSV, enforce sell protection~~ | ~~Unit tests passing~~ ✅ |
+| ~~0.6~~ | ~~SQLite setup — create schema (bars, catalysts, trades, account_snapshots, regime_log, sector_snapshots)~~ | ~~`data/store.py` with migrations~~ ✅ |
+| ~~0.7~~ | ~~Data models (Pydantic or dataclasses for Bar, Trade, Signal, Position, AccountState)~~ | ~~`data/models.py` tested~~ ✅ |
 
 ---
 
@@ -26,7 +26,7 @@ Depends on: Phase 0
 |------|-------------|-------------|
 | 1.1 | ~~Sector tracker — monitor 11 sector ETFs, momentum scoring~~ | ~~`scanner/sectors.py`~~ ✅ |
 | 1.2 | ~~Market regime detection — SPY/VIX-based classification (strong_bull/bull/choppy/bear/crisis)~~ | ~~Regime classifier with unit tests~~ ✅ |
-| 1.3 | IBKR market scanner integration — top gainers/losers, unusual volume | `scanner/screener.py` |
+| ~~1.3~~ | ~~IBKR market scanner integration — top gainers/losers, unusual volume~~ | ~~`scanner/screener.py`~~ ✅ |
 | 1.4 | Stock screener — candidate ranking with composite scores | Ranked watchlist output |
 | 1.5 | News & catalyst engine — RSS/API ingestion, basic NLP classification | `scanner/news.py` |
 | 1.6 | Data ingestion layer — historical bar fetching, incremental updates, rate limiting | `data/ingest.py` |
