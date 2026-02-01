@@ -24,6 +24,8 @@
 
 8. **Daily reconciliation: bot + protected = IBKR total.** Any mismatch = halt + alert Filip.
 
+9. **Always use the local .venv.** Run `poetry run` or activate `.venv/bin/activate` before any Python command. Never install packages globally.
+
 ## Project Structure
 - `config/` — Settings, env vars, sector definitions, protected portfolio
 - `scanner/` — Market scanning: sectors, news, screener
