@@ -1,1 +1,297 @@
-"""Technical analysis: breakout, RSI, MACD, ATR."""
+"""Technical analysis: breakout detection, momentum, volume, signal generation."""
+
+from __future__ import annotations
+
+import time
+
+from config.sectors import REGIME_FACTORS, REGIME_BEAR, REGIME_BEAR_LONG_FACTOR
+from config.settings import risk_config
+from data.indicators import (
+    atr,
+    ema,
+    macd,
+    rate_of_change,
+    relative_volume,
+    rsi,
+    sma,
+)
+from data.models import DirectionType, RegimeType, Signal
+
+# Minimum confidence to emit a signal
+MIN_CONFIDENCE = 0.4
+
+
+def extract_series(bars: list[dict]) -> dict:
+    """Extract price/volume lists from bar dicts."""
+    closes = [b["close"] for b in bars]
+    highs = [b["high"] for b in bars]
+    lows = [b["low"] for b in bars]
+    volumes = [b["volume"] for b in bars]
+    timestamps = [b["timestamp"] for b in bars]
+    return {
+        "closes": closes,
+        "highs": highs,
+        "lows": lows,
+        "volumes": volumes,
+        "timestamps": timestamps,
+    }
+
+
+def compute_technicals(bars: list[dict]) -> dict:
+    """Run all indicators on bar series."""
+    s = extract_series(bars)
+    c, h, l, v = s["closes"], s["highs"], s["lows"], s["volumes"]
+    macd_line, macd_signal, macd_hist = macd(c)
+    return {
+        "sma_20": sma(c, 20),
+        "sma_50": sma(c, 50),
+        "ema_12": ema(c, 12),
+        "ema_26": ema(c, 26),
+        "rsi_14": rsi(c),
+        "macd_line": macd_line,
+        "macd_signal": macd_signal,
+        "macd_hist": macd_hist,
+        "atr_14": atr(h, l, c),
+        "roc_5": rate_of_change(c, 5),
+        "roc_20": rate_of_change(c, 20),
+        "rvol_20": relative_volume(v, 20),
+    }
+
+
+def detect_breakout(bars: list[dict], technicals: dict) -> dict | None:
+    """Detect price breakout above 20-bar high or below 20-bar low."""
+    if len(bars) < 21:
+        return None
+    closes = [b["close"] for b in bars]
+    highs = [b["high"] for b in bars]
+    lows = [b["low"] for b in bars]
+    last_close = closes[-1]
+    sma50 = technicals["sma_50"][-1]
+    if sma50 is None:
+        return None
+
+    prior_highs = highs[-21:-1]
+    prior_lows = lows[-21:-1]
+    highest = max(prior_highs)
+    lowest = min(prior_lows)
+
+    if last_close > highest and last_close > sma50:
+        return {"direction": "LONG", "level": highest, "type": "high_breakout"}
+    if last_close < lowest and last_close < sma50:
+        return {"direction": "SHORT", "level": lowest, "type": "low_breakdown"}
+    return None
+
+
+def check_momentum(technicals: dict) -> dict:
+    """Evaluate momentum from latest indicator values."""
+    rsi_val = _last_valid(technicals["rsi_14"])
+    if rsi_val is not None:
+        if rsi_val >= 70:
+            rsi_signal = "overbought"
+        elif rsi_val <= 30:
+            rsi_signal = "oversold"
+        else:
+            rsi_signal = "neutral"
+    else:
+        rsi_signal = "neutral"
+
+    # MACD cross: check last two histogram values
+    macd_cross = None
+    hist = technicals["macd_hist"]
+    h1 = _last_valid(hist, offset=1)
+    h0 = _last_valid(hist)
+    if h1 is not None and h0 is not None:
+        if h1 <= 0 < h0:
+            macd_cross = "bullish"
+        elif h1 >= 0 > h0:
+            macd_cross = "bearish"
+
+    macd_hist_rising = False
+    if h1 is not None and h0 is not None:
+        macd_hist_rising = h0 > h1
+
+    # Trend: SMA20 vs SMA50
+    sma20 = _last_valid(technicals["sma_20"])
+    sma50 = _last_valid(technicals["sma_50"])
+    if sma20 is not None and sma50 is not None:
+        if sma20 > sma50 * 1.001:
+            trend = "up"
+        elif sma20 < sma50 * 0.999:
+            trend = "down"
+        else:
+            trend = "flat"
+    else:
+        trend = "flat"
+
+    roc5 = _last_valid(technicals["roc_5"])
+    return {
+        "rsi": rsi_val,
+        "rsi_signal": rsi_signal,
+        "macd_cross": macd_cross,
+        "macd_histogram_rising": macd_hist_rising,
+        "roc_5": roc5,
+        "trend": trend,
+    }
+
+
+def check_volume_confirmation(technicals: dict) -> dict:
+    """Evaluate volume conviction."""
+    rvol = _last_valid(technicals["rvol_20"])
+    if rvol is None:
+        return {
+            "rvol": None,
+            "conviction": "weak",
+            "volume_trend": "flat",
+            "price_volume_divergence": False,
+        }
+
+    if rvol >= 2.0:
+        conviction = "strong"
+    elif rvol >= 1.5:
+        conviction = "moderate"
+    else:
+        conviction = "weak"
+
+    # Volume trend: compare last rvol to one before
+    rvol_prev = _last_valid(technicals["rvol_20"], offset=1)
+    if rvol_prev is not None:
+        if rvol > rvol_prev * 1.1:
+            vol_trend = "rising"
+        elif rvol < rvol_prev * 0.9:
+            vol_trend = "falling"
+        else:
+            vol_trend = "flat"
+    else:
+        vol_trend = "flat"
+
+    # Price-volume divergence: price up but volume falling
+    roc = _last_valid(technicals["roc_5"])
+    divergence = False
+    if roc is not None and roc > 0 and vol_trend == "falling":
+        divergence = True
+
+    return {
+        "rvol": rvol,
+        "conviction": conviction,
+        "volume_trend": vol_trend,
+        "price_volume_divergence": divergence,
+    }
+
+
+def compute_stop_target(
+    direction: DirectionType,
+    entry_price: float,
+    atr_val: float,
+    regime_factor: float,
+) -> tuple[float, float]:
+    """Compute initial stop and target prices using ATR."""
+    k1 = risk_config.stop_k1
+    adjusted_atr = atr_val * regime_factor
+    if direction == "LONG":
+        stop = entry_price - k1 * adjusted_atr
+        target = entry_price + 2.0 * adjusted_atr
+    else:
+        stop = entry_price + k1 * adjusted_atr
+        target = entry_price - 2.0 * adjusted_atr
+    return (stop, target)
+
+
+def generate_technical_signal(
+    bars: list[dict],
+    regime: RegimeType,
+    direction_hint: DirectionType | None = None,
+    sector: str | None = None,
+) -> Signal | None:
+    """Orchestrate technical analysis and produce a Signal if conditions met."""
+    if len(bars) < 51:
+        return None
+
+    technicals = compute_technicals(bars)
+    breakout = detect_breakout(bars, technicals)
+    if breakout is None:
+        return None
+
+    direction: DirectionType = breakout["direction"]
+    if direction_hint is not None and direction != direction_hint:
+        return None
+
+    momentum = check_momentum(technicals)
+    volume = check_volume_confirmation(technicals)
+
+    # Filter: don't go long if overbought, don't short if oversold
+    if direction == "LONG" and momentum["rsi_signal"] == "overbought":
+        return None
+    if direction == "SHORT" and momentum["rsi_signal"] == "oversold":
+        return None
+
+    # Confidence scoring
+    breakout_score = 0.4  # base for having a breakout
+    momentum_score = 0.0
+    if direction == "LONG":
+        if momentum["trend"] == "up":
+            momentum_score += 0.15
+        if momentum["macd_cross"] == "bullish" or momentum["macd_histogram_rising"]:
+            momentum_score += 0.1
+    else:
+        if momentum["trend"] == "down":
+            momentum_score += 0.15
+        if momentum["macd_cross"] == "bearish" or not momentum["macd_histogram_rising"]:
+            momentum_score += 0.1
+
+    vol_score = 0.0
+    if volume["conviction"] == "strong":
+        vol_score = 0.2
+    elif volume["conviction"] == "moderate":
+        vol_score = 0.1
+
+    if volume["price_volume_divergence"] and direction == "LONG":
+        vol_score -= 0.1
+
+    confidence = min(breakout_score + momentum_score + vol_score, 1.0)
+    if confidence < MIN_CONFIDENCE:
+        return None
+
+    # Stop/target
+    atr_val = _last_valid(technicals["atr_14"])
+    if atr_val is None or atr_val <= 0:
+        return None
+
+    regime_factor = REGIME_FACTORS.get(regime, 1.0)
+    if regime == REGIME_BEAR and direction == "LONG":
+        regime_factor = REGIME_BEAR_LONG_FACTOR
+
+    entry_price = bars[-1]["close"]
+    stop_price, target_price = compute_stop_target(
+        direction, entry_price, atr_val, regime_factor
+    )
+
+    reasons: list[str] = []
+    reasons.append(f"{breakout['type']} at {breakout['level']:.2f}")
+    reasons.append(f"trend={momentum['trend']}")
+    reasons.append(f"RSI={momentum['rsi']:.1f}" if momentum["rsi"] else "RSI=N/A")
+    reasons.append(f"rvol={volume['rvol']:.1f}x" if volume["rvol"] else "rvol=N/A")
+
+    symbol = bars[-1].get("symbol", "")
+    return Signal(
+        symbol=symbol,
+        direction=direction,
+        entry_price=entry_price,
+        stop_price=round(stop_price, 2),
+        target_price=round(target_price, 2),
+        confidence=round(confidence, 3),
+        score=round(confidence, 3),
+        regime=regime,
+        sector=sector,
+        reason="; ".join(reasons),
+        timestamp=bars[-1].get("timestamp", int(time.time())),
+    )
+
+
+def _last_valid(series: list, offset: int = 0) -> float | None:
+    """Get last non-None value from a series, with optional offset from end."""
+    idx = len(series) - 1 - offset
+    while idx >= 0:
+        if series[idx] is not None:
+            return series[idx]
+        idx -= 1
+    return None
