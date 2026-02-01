@@ -373,3 +373,14 @@ class ReconciliationResult(BaseModel):
 
     matches: bool
     mismatches: list[str] = []
+
+
+class ReconciliationSnapshot(BaseModel):
+    """Timestamped reconciliation result with detail."""
+
+    timestamp: int
+    matches: bool
+    mismatches: list[str] = []
+    bot_total_symbols: int
+    ibkr_total_symbols: int
+    protected_total_symbols: int
