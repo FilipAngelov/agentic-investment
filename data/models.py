@@ -188,6 +188,7 @@ class Signal(BaseModel):
     volume_conviction: str | None = None
     position_size_factor: float = 1.0
     timeframe_alignment: float | None = None
+    expected_move_pct: float | None = None
 
     @field_validator("confidence")
     @classmethod
