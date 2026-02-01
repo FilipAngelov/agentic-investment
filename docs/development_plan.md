@@ -76,7 +76,7 @@ Depends on: Phase 3
 | 4.3 | Performance analytics — Sharpe, win rate, profit factor, per-sector stats | `portfolio/analytics.py` | ✅ Done |
 | 4.4 | Notification agent — WhatsApp alerts via API | `portfolio/notify.py` | ✅ Done |
 | 4.5 | FastAPI dashboard — health checks, position view, P&L summary | Dashboard endpoint | ✅ Done |
-| 4.6 | Daily/weekly reports | Automated report generation |
+| 4.6 | Daily/weekly reports | Automated report generation | ✅ Done |
 
 ---
 

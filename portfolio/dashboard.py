@@ -12,6 +12,7 @@ from fastapi import FastAPI, Query
 
 from data.store import query_trades
 from portfolio.analytics import compute_metrics, compute_metrics_by_group
+from portfolio.reports import generate_daily_report, generate_weekly_report
 
 
 def create_app(
@@ -114,6 +115,28 @@ def create_app(
             )
         finally:
             await db.close()
+
+    @app.get("/api/reports/daily")
+    async def report_daily():
+        report = await generate_daily_report(
+            app.state.tracker,
+            app.state.risk,
+            app.state.reconciler,
+            app.state.db_path,
+            app.state.equity,
+        )
+        return {"report": report, "timestamp": int(time.time())}
+
+    @app.get("/api/reports/weekly")
+    async def report_weekly():
+        report = await generate_weekly_report(
+            app.state.tracker,
+            app.state.risk,
+            app.state.reconciler,
+            app.state.db_path,
+            app.state.equity,
+        )
+        return {"report": report, "timestamp": int(time.time())}
 
     @app.get("/api/reconciliation")
     async def reconciliation():
