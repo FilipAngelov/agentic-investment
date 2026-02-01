@@ -1,5 +1,32 @@
-# starting_portfolio.csv — snapshot at bot launch
-# symbol,shares,note
-# ABCL,XXX,long-term hold
-# ACHR,XXX,long-term hold
-# AMD,XXX,long-term hold
+symbol,shares,note
+AAPL,7,long-term hold
+ABCL,100,long-term hold
+ACHR,50,long-term hold
+AMD,7,long-term hold
+AMZN,10,long-term hold
+ARM,3,long-term hold
+ASML,1,long-term hold
+AVGO,5,long-term hold
+CAN,1500,long-term hold
+CCJ,11,long-term hold
+CPER,30,long-term hold
+CPRI,30,long-term hold
+CRWD,2,long-term hold
+CRWV,5,long-term hold
+EOSE,50,long-term hold
+ETN,2,long-term hold
+FCX,10,long-term hold
+GOOG,6,long-term hold
+HIMS,10,long-term hold
+IAUM,40,long-term hold
+IONQ,5,long-term hold
+IREN,10,long-term hold
+MU,8,long-term hold
+NVDA,5,long-term hold
+OSCR,30,long-term hold
+QQQ,2,long-term hold
+SMCI,10,long-term hold
+SPY,2,long-term hold
+TSM,9,long-term hold
+WPM,5,long-term hold
+WYFI,10,long-term hold
