@@ -189,12 +189,53 @@ class Signal(BaseModel):
     position_size_factor: float = 1.0
     timeframe_alignment: float | None = None
     expected_move_pct: float | None = None
+    atr: float | None = None
 
     @field_validator("confidence")
     @classmethod
     def confidence_range(cls, v: float) -> float:
         if not (0.0 <= v <= 1.0):
             raise ValueError("confidence must be between 0.0 and 1.0")
+        return v
+
+    @field_validator("score")
+    @classmethod
+    def score_range(cls, v: float) -> float:
+        if not (0.0 <= v <= 1.0):
+            raise ValueError("score must be between 0.0 and 1.0")
+        return v
+
+    @field_validator("stop_price")
+    @classmethod
+    def stop_direction_consistent(cls, v: float, info) -> float:
+        direction = info.data.get("direction")
+        entry = info.data.get("entry_price")
+        if direction is None or entry is None:
+            return v
+        if direction == "LONG" and v >= entry:
+            raise ValueError("LONG stop_price must be below entry_price")
+        if direction == "SHORT" and v <= entry:
+            raise ValueError("SHORT stop_price must be above entry_price")
+        return v
+
+    @field_validator("target_price")
+    @classmethod
+    def target_direction_consistent(cls, v: float, info) -> float:
+        direction = info.data.get("direction")
+        entry = info.data.get("entry_price")
+        if direction is None or entry is None:
+            return v
+        if direction == "LONG" and v <= entry:
+            raise ValueError("LONG target_price must be above entry_price")
+        if direction == "SHORT" and v >= entry:
+            raise ValueError("SHORT target_price must be below entry_price")
+        return v
+
+    @field_validator("atr")
+    @classmethod
+    def atr_positive(cls, v: float | None) -> float | None:
+        if v is not None and v <= 0:
+            raise ValueError("atr must be positive")
         return v
 
 
