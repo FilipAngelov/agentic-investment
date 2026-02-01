@@ -315,6 +315,18 @@ class OrderResult(BaseModel):
     pre_trade: PreTradeResult | None = None
 
 
+class StopUpdate(BaseModel):
+    """Result of a trailing stop recalculation."""
+
+    symbol: str
+    old_stop: float
+    new_stop: float
+    moved: bool  # True if stop was tightened
+    profit_atr: float  # profit in ATR units
+    k_used: float  # which k-multiplier was applied
+    regime_factor: float
+
+
 class ReconciliationResult(BaseModel):
     """Result of bot + protected vs IBKR reconciliation."""
 

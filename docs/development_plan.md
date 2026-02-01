@@ -57,7 +57,7 @@ Depends on: Phase 2
 | ~~3.1~~ | ~~DTBP Guard — pre-trade compliance (DTBP check, margin impact, protected shares)~~ | ~~`execution/dtbp_guard.py` with full tests~~ ✅ |
 | ~~3.2~~ | ~~Position sizing — risk-per-trade / distance-to-stop~~ | ~~`execution/sizing.py`~~ ✅ |
 | ~~3.3~~ | ~~Order manager — limit/market orders via ib_async, stop placement~~ | ~~`execution/orders.py`~~ ✅ |
-| 3.4 | Adaptive trailing stop algorithm (ATR-based, regime-adjusted) | Trailing stop logic in orders.py |
+| ~~3.4~~ | ~~Adaptive trailing stop algorithm (ATR-based, regime-adjusted)~~ | ~~`execution/trailing_stop.py`~~ ✅ |
 | 3.5 | Partial exit logic — scale out at +1 ATR, +2 ATR | Partial exit rules |
 | 3.6 | Time decay exits | Time-based exit logic |
 | 3.7 | Risk controller — daily drawdown kill switch, portfolio heat, sector concentration | `execution/risk.py` |
