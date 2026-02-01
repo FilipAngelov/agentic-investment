@@ -1,0 +1,36 @@
+[project]
+name = "agentic-investment"
+version = "0.1.0"
+description = "Automated directional stock trading system using IBKR API"
+authors = [{name = "Filip"}]
+requires-python = ">=3.10"
+dependencies = [
+    "ib_async>=1.0.0",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "aiosqlite>=0.19",
+    "python-dotenv>=1.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+]
+
+[tool.poetry]
+packages = [
+    { include = "config" },
+    { include = "scanner" },
+    { include = "signals" },
+    { include = "execution" },
+    { include = "portfolio" },
+    { include = "data" },
+]
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+pytest-asyncio = ">=0.23"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
