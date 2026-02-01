@@ -350,6 +350,24 @@ class TimeDecaySignal(BaseModel):
     new_stop: float | None = None  # set when action == "tighten_stop"
 
 
+class RiskStatus(BaseModel):
+    """Snapshot of portfolio-level risk assessment."""
+
+    timestamp: int
+    daily_pnl: float
+    drawdown_limit: float
+    drawdown_breached: bool
+    portfolio_heat: float
+    max_portfolio_heat: float
+    heat_breached: bool
+    sector_heats: dict[str, float] = {}
+    max_sector_heat: float
+    sector_breached: list[str] = []
+    concentration_clusters: list[str] = []
+    halt_trading: bool
+    warnings: list[str] = []
+
+
 class ReconciliationResult(BaseModel):
     """Result of bot + protected vs IBKR reconciliation."""
 

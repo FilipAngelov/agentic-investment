@@ -60,7 +60,7 @@ Depends on: Phase 2
 | ~~3.4~~ | ~~Adaptive trailing stop algorithm (ATR-based, regime-adjusted)~~ | ~~`execution/trailing_stop.py`~~ ✅ |
 | ~~3.5~~ | ~~Partial exit logic — scale out at +1 ATR, +2 ATR~~ | ~~`execution/partial_exit.py`~~ ✅ |
 | ~~3.6~~ | ~~Time decay exits~~ | ~~`execution/time_decay.py`~~ ✅ |
-| 3.7 | Risk controller — daily drawdown kill switch, portfolio heat, sector concentration | `execution/risk.py` |
+| ~~3.7~~ | ~~Risk controller — daily drawdown kill switch, portfolio heat, sector concentration~~ | ~~`execution/risk.py`~~ ✅ (Note: concentration uses sector-count proxy; full Pearson correlation deferred until historical bar pipeline is available) |
 | 3.8 | Daily reconciliation — bot positions + protected = IBKR total | Reconciliation check in risk.py |
 
 ---
