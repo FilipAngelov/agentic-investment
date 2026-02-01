@@ -39,6 +39,8 @@ class BacktestConfig:
     primary_timeframe: str = "5m"
     output_dir: str = "results"
     seed: int | None = 42
+    start_ts: int | None = None  # filter daily_timestamps to [start_ts, end_ts]
+    end_ts: int | None = None
 
 
 class BacktestEngine:
@@ -71,6 +73,10 @@ class BacktestEngine:
     async def run(self) -> BacktestResults:
         """Execute the backtest and return results."""
         daily_ts_list = self._feed.daily_timestamps()
+        if self._config.start_ts:
+            daily_ts_list = [t for t in daily_ts_list if t >= self._config.start_ts]
+        if self._config.end_ts:
+            daily_ts_list = [t for t in daily_ts_list if t <= self._config.end_ts]
         if not daily_ts_list:
             logger.warning("No daily timestamps found in feed")
             return self._results
