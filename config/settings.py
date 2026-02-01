@@ -74,6 +74,28 @@ class NotifyConfig:
 
 
 @dataclass(frozen=True)
+class NewsConfig:
+    """RSS / catalyst engine settings."""
+
+    feed_urls: tuple[str, ...] = (
+        "https://feeds.reuters.com/reuters/businessNews",
+        "https://feeds.reuters.com/reuters/technologyNews",
+        "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&dateb=&owner=include&count=40&search_text=&start=0&output=atom",
+        "https://www.statnews.com/feed/",
+        "https://www.defenseone.com/rss/",
+        "https://www.kitco.com/rss/",
+        "https://www.coindesk.com/arc/outboundfeeds/rss/",
+        "https://www.utilitydive.com/feeds/news/",
+        "https://spacenews.com/feed/",
+        "https://www.world-nuclear-news.org/rss",
+    )
+    poll_interval_market: int = 120  # seconds
+    poll_interval_off: int = 1800  # seconds
+    max_age_hours: int = 48
+    llm_model: str = "claude-haiku-4-20250414"
+
+
+@dataclass(frozen=True)
 class LLMConfig:
     """LLM API settings (warm/cold path only)."""
 
@@ -102,3 +124,4 @@ ib_config = IBConfig()
 risk_config = RiskConfig()
 notify_config = NotifyConfig()
 llm_config = LLMConfig()
+news_config = NewsConfig()

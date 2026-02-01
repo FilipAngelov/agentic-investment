@@ -27,8 +27,8 @@ Depends on: Phase 0
 | 1.1 | ~~Sector tracker — monitor 11 sector ETFs, momentum scoring~~ | ~~`scanner/sectors.py`~~ ✅ |
 | 1.2 | ~~Market regime detection — SPY/VIX-based classification (strong_bull/bull/choppy/bear/crisis)~~ | ~~Regime classifier with unit tests~~ ✅ |
 | ~~1.3~~ | ~~IBKR market scanner integration — top gainers/losers, unusual volume~~ | ~~`scanner/screener.py`~~ ✅ |
-| 1.4 | Stock screener — candidate ranking with composite scores | Ranked watchlist output |
-| 1.5 | News & catalyst engine — RSS/API ingestion, basic NLP classification | `scanner/news.py` |
+| ~~1.4~~ | ~~Stock screener — candidate ranking with composite scores~~ | ~~Ranked watchlist output~~ ✅ |
+| ~~1.5~~ | ~~News & catalyst engine — RSS/API ingestion, basic NLP classification~~ | ~~`scanner/news.py`~~ ✅ |
 | 1.6 | Data ingestion layer — historical bar fetching, incremental updates, rate limiting | `data/ingest.py` |
 
 ---

@@ -108,6 +108,66 @@ async def get_db() -> aiosqlite.Connection:
     return db
 
 
+async def insert_catalyst(
+    db: aiosqlite.Connection,
+    *,
+    timestamp: int,
+    symbol: str | None,
+    sector: str | None,
+    headline: str,
+    source: str,
+    sentiment: float | None,
+    magnitude: int | None,
+    catalyst_type: str | None,
+    raw_text: str | None,
+    llm_analysis: str | None,
+) -> int:
+    """Insert a catalyst row and return its rowid."""
+    cur = await db.execute(
+        """INSERT INTO catalysts
+           (timestamp, symbol, sector, headline, source, sentiment, magnitude,
+            catalyst_type, raw_text, llm_analysis)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            timestamp, symbol, sector, headline, source, sentiment, magnitude,
+            catalyst_type, raw_text, llm_analysis,
+        ),
+    )
+    await db.commit()
+    return cur.lastrowid  # type: ignore[return-value]
+
+
+async def query_catalysts(
+    db: aiosqlite.Connection,
+    *,
+    since_ts: int,
+    symbol: str | None = None,
+) -> list[dict]:
+    """Return catalyst rows newer than *since_ts*, optionally for a symbol."""
+    if symbol:
+        cur = await db.execute(
+            "SELECT * FROM catalysts WHERE timestamp >= ? AND symbol = ? ORDER BY timestamp DESC",
+            (since_ts, symbol),
+        )
+    else:
+        cur = await db.execute(
+            "SELECT * FROM catalysts WHERE timestamp >= ? ORDER BY timestamp DESC",
+            (since_ts,),
+        )
+    rows = await cur.fetchall()
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, row)) for row in rows]
+
+
+async def headline_exists(db: aiosqlite.Connection, headline_hash: str) -> bool:
+    """Check if a catalyst with this headline already exists (by exact headline match)."""
+    cur = await db.execute(
+        "SELECT 1 FROM catalysts WHERE headline = ? LIMIT 1",
+        (headline_hash,),
+    )
+    return (await cur.fetchone()) is not None
+
+
 async def init_db() -> None:
     """Create all tables and indexes if they don't exist."""
     db = await get_db()

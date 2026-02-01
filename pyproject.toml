@@ -12,6 +12,9 @@ dependencies = [
     "python-dotenv>=1.0",
     "fastapi>=0.110",
     "uvicorn>=0.27",
+    "feedparser>=6.0",
+    "aiohttp>=3.9",
+    "anthropic>=0.40",
 ]
 
 [tool.poetry]
