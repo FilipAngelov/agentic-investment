@@ -300,6 +300,21 @@ class PreTradeResult(BaseModel):
     checks_failed: list[str] = []
 
 
+class OrderResult(BaseModel):
+    """Result of an order execution attempt."""
+
+    success: bool
+    symbol: str
+    direction: DirectionType
+    shares: int = 0
+    entry_price: float = 0.0
+    stop_price: float = 0.0
+    target_price: float = 0.0
+    order_ids: list[int] = []  # [parent, stop, target]
+    reason: str = ""  # rejection/failure reason
+    pre_trade: PreTradeResult | None = None
+
+
 class ReconciliationResult(BaseModel):
     """Result of bot + protected vs IBKR reconciliation."""
 
