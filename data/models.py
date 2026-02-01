@@ -185,6 +185,8 @@ class Signal(BaseModel):
     sector: str | None = None
     reason: str | None = None
     timestamp: int
+    volume_conviction: str | None = None
+    position_size_factor: float = 1.0
 
     @field_validator("confidence")
     @classmethod

@@ -40,7 +40,7 @@ Depends on: Phase 1
 | Task | Description | Deliverable |
 |------|-------------|-------------|
 | ~~2.1~~ | ~~Technical analysis — breakout detection, RSI, MACD, rate of change~~ | ~~`data/indicators.py` + `signals/technical.py`~~ ✅ |
-| 2.2 | Volume confirmation logic | Volume rules integrated into signals |
+| ~~2.2~~ | ~~Volume confirmation logic~~ | ~~Volume rules integrated into signals~~ ✅ |
 | 2.3 | Multi-timeframe alignment (5m, 15m, daily) | Timeframe confirmation module |
 | 2.4 | Expected Move (EM) calculation — CSS × beta × HV × regime factor | EM calculator with tests |
 | 2.5 | Composite signal scoring — sector momentum + news + technicals + volume | `signals/scoring.py` |

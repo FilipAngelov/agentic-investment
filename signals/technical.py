@@ -170,12 +170,36 @@ def check_volume_confirmation(technicals: dict) -> dict:
     if roc is not None and roc > 0 and vol_trend == "falling":
         divergence = True
 
+    # Capitulation: price falling + high volume
+    capitulation = roc is not None and roc < -1.0 and rvol >= 2.0
+
+    # Volume exhaustion: 3+ consecutive bars of declining volume in an uptrend
+    volume_exhaustion = False
+    rvol_series = technicals["rvol_20"]
+    roc_val = _last_valid(technicals["roc_20"])
+    if roc_val is not None and roc_val > 0 and len(rvol_series) >= 4:
+        # Check last 3 bars for consecutive decline
+        tail = [v for v in rvol_series[-4:] if v is not None]
+        if len(tail) >= 4 and all(tail[i] > tail[i + 1] for i in range(len(tail) - 1)):
+            volume_exhaustion = True
+
     return {
         "rvol": rvol,
         "conviction": conviction,
         "volume_trend": vol_trend,
         "price_volume_divergence": divergence,
+        "capitulation": capitulation,
+        "volume_exhaustion": volume_exhaustion,
     }
+
+
+def compute_position_size_factor(conviction: str) -> float:
+    """Map volume conviction to position size factor."""
+    if conviction == "strong":
+        return 1.0
+    if conviction == "moderate":
+        return 0.75
+    return 0.5
 
 
 def compute_stop_target(
@@ -270,6 +294,12 @@ def generate_technical_signal(
     reasons.append(f"trend={momentum['trend']}")
     reasons.append(f"RSI={momentum['rsi']:.1f}" if momentum["rsi"] else "RSI=N/A")
     reasons.append(f"rvol={volume['rvol']:.1f}x" if volume["rvol"] else "rvol=N/A")
+    if volume.get("capitulation"):
+        reasons.append("CAPITULATION")
+    if volume.get("volume_exhaustion"):
+        reasons.append("vol_exhaustion")
+
+    position_size_factor = compute_position_size_factor(volume["conviction"])
 
     symbol = bars[-1].get("symbol", "")
     return Signal(
@@ -284,6 +314,8 @@ def generate_technical_signal(
         sector=sector,
         reason="; ".join(reasons),
         timestamp=bars[-1].get("timestamp", int(time.time())),
+        volume_conviction=volume["conviction"],
+        position_size_factor=position_size_factor,
     )
 
 

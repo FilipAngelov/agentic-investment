@@ -5,6 +5,7 @@ import pytest
 from signals.technical import (
     check_momentum,
     check_volume_confirmation,
+    compute_position_size_factor,
     compute_stop_target,
     compute_technicals,
     detect_breakout,
@@ -226,3 +227,106 @@ class TestGenerateSignal:
             bull_dist = sig_bull.entry_price - sig_bull.stop_price
             bear_dist = sig_bear.entry_price - sig_bear.stop_price
             assert bear_dist < bull_dist
+
+
+# ---------------------------------------------------------------------------
+# Capitulation detection
+# ---------------------------------------------------------------------------
+
+
+class TestCapitulation:
+    def test_capitulation_detection(self):
+        """Price down + high rvol → capitulation=True."""
+        # Downtrend with spike volume on last bar
+        closes = [100.0 - i * 0.5 for i in range(60)]
+        vols = [100_000] * 59 + [300_000]
+        bars = _make_bars(closes, volumes=vols)
+        tech = compute_technicals(bars)
+        v = check_volume_confirmation(tech)
+        assert v["capitulation"] is True
+
+    def test_no_capitulation_on_low_volume(self):
+        """Price down + low rvol → capitulation=False."""
+        closes = [100.0 - i * 0.5 for i in range(60)]
+        vols = [100_000] * 60
+        bars = _make_bars(closes, volumes=vols)
+        tech = compute_technicals(bars)
+        v = check_volume_confirmation(tech)
+        assert v["capitulation"] is False
+
+
+# ---------------------------------------------------------------------------
+# Volume exhaustion
+# ---------------------------------------------------------------------------
+
+
+class TestVolumeExhaustion:
+    def test_volume_exhaustion(self):
+        """3+ bars of declining volume in uptrend → exhaustion=True."""
+        closes = [100.0 + i * 0.5 for i in range(60)]
+        # Last 4 bars: declining volume
+        vols = [100_000] * 56 + [200_000, 180_000, 150_000, 120_000]
+        bars = _make_bars(closes, volumes=vols)
+        tech = compute_technicals(bars)
+        v = check_volume_confirmation(tech)
+        assert v["volume_exhaustion"] is True
+
+    def test_no_exhaustion_in_downtrend(self):
+        """Declining volume in downtrend should not flag exhaustion."""
+        closes = [200.0 - i * 0.5 for i in range(60)]
+        vols = [100_000] * 56 + [200_000, 180_000, 150_000, 120_000]
+        bars = _make_bars(closes, volumes=vols)
+        tech = compute_technicals(bars)
+        v = check_volume_confirmation(tech)
+        assert v["volume_exhaustion"] is False
+
+
+# ---------------------------------------------------------------------------
+# Position size factor
+# ---------------------------------------------------------------------------
+
+
+class TestPositionSizeFactor:
+    def test_strong(self):
+        assert compute_position_size_factor("strong") == 1.0
+
+    def test_moderate(self):
+        assert compute_position_size_factor("moderate") == 0.75
+
+    def test_weak(self):
+        assert compute_position_size_factor("weak") == 0.5
+
+
+# ---------------------------------------------------------------------------
+# Signal carries volume fields
+# ---------------------------------------------------------------------------
+
+
+class TestSignalVolumeFields:
+    def test_signal_carries_volume_fields(self):
+        """generate_technical_signal populates volume_conviction and position_size_factor."""
+        closes = [100.0 + i * 0.1 for i in range(70)]
+        closes.append(closes[-1] + 3.0)
+        vols = [100_000] * 70 + [300_000]
+        bars = _make_bars(closes, volumes=vols)
+        sig = generate_technical_signal(bars, regime="bull")
+        if sig is not None:
+            assert sig.volume_conviction in ("strong", "moderate", "weak")
+            assert sig.position_size_factor in (1.0, 0.75, 0.5)
+
+
+# ---------------------------------------------------------------------------
+# Divergence detection
+# ---------------------------------------------------------------------------
+
+
+class TestDivergence:
+    def test_divergence_detection(self):
+        """Price up + volume falling → divergence=True."""
+        closes = [100.0 + i * 0.5 for i in range(60)]
+        # Volume declining over last bars
+        vols = [100_000] * 56 + [200_000, 180_000, 140_000, 100_000]
+        bars = _make_bars(closes, volumes=vols)
+        tech = compute_technicals(bars)
+        v = check_volume_confirmation(tech)
+        assert v["price_volume_divergence"] is True
