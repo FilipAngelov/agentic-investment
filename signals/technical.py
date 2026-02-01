@@ -225,6 +225,7 @@ def generate_technical_signal(
     regime: RegimeType,
     direction_hint: DirectionType | None = None,
     sector: str | None = None,
+    higher_tf_bars: dict[str, list[dict]] | None = None,
 ) -> Signal | None:
     """Orchestrate technical analysis and produce a Signal if conditions met."""
     if len(bars) < 51:
@@ -299,6 +300,25 @@ def generate_technical_signal(
     if volume.get("volume_exhaustion"):
         reasons.append("vol_exhaustion")
 
+    # Multi-timeframe alignment adjustment
+    tf_alignment_score: float | None = None
+    if higher_tf_bars:
+        from signals.timeframe import (
+            check_timeframe_alignment,
+            compute_timeframe_confidence_adjustment,
+        )
+
+        alignment = check_timeframe_alignment(higher_tf_bars)
+        tf_adj = compute_timeframe_confidence_adjustment(alignment, direction)
+        confidence = max(0.0, min(confidence + tf_adj, 1.0))
+        tf_alignment_score = alignment["alignment_score"]
+        reasons.append(f"tf_align={tf_alignment_score:.2f}")
+        if alignment["dominant_direction"]:
+            reasons.append(f"tf_dom={alignment['dominant_direction']}")
+
+    if confidence < MIN_CONFIDENCE:
+        return None
+
     position_size_factor = compute_position_size_factor(volume["conviction"])
 
     symbol = bars[-1].get("symbol", "")
@@ -316,6 +336,7 @@ def generate_technical_signal(
         timestamp=bars[-1].get("timestamp", int(time.time())),
         volume_conviction=volume["conviction"],
         position_size_factor=position_size_factor,
+        timeframe_alignment=tf_alignment_score,
     )
 
 
