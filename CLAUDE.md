@@ -4,7 +4,7 @@
 - `docs/agentic_investment.md` — Full strategy, architecture, and constraints
 - `docs/development_plan.md` — Phased implementation plan
 - `docs/strategy_design.md` — Strategy design (if present)
-- `docs/ontology.md` — Sector/news ontology (if present)
+- `docs/agentic_investment_ontology.md` — Sector/stock ontology for scanner module
 
 ## Critical Rules (NEVER violate)
 
