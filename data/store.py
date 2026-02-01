@@ -242,6 +242,102 @@ async def cleanup_old_bars(
     await db.commit()
 
 
+async def insert_trade(
+    db: aiosqlite.Connection,
+    *,
+    symbol: str,
+    direction: str,
+    entry_time: int,
+    entry_price: float,
+    entry_shares: int,
+    exit_time: int,
+    exit_price: float,
+    exit_shares: int,
+    pnl: float,
+    pnl_pct: float,
+    signal_score: float | None,
+    signal_reason: str | None,
+    exit_reason: str | None,
+    catalyst_id: int | None,
+    regime: str | None,
+    sector: str | None,
+) -> int:
+    """Insert a completed trade and return its rowid."""
+    cur = await db.execute(
+        """INSERT INTO trades
+           (symbol, direction, entry_time, entry_price, entry_shares,
+            exit_time, exit_price, exit_shares, pnl, pnl_pct,
+            signal_score, signal_reason, exit_reason, catalyst_id, regime, sector)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            symbol, direction, entry_time, entry_price, entry_shares,
+            exit_time, exit_price, exit_shares, pnl, pnl_pct,
+            signal_score, signal_reason, exit_reason, catalyst_id, regime, sector,
+        ),
+    )
+    await db.commit()
+    return cur.lastrowid  # type: ignore[return-value]
+
+
+async def query_trades(
+    db: aiosqlite.Connection,
+    *,
+    since_ts: int | None = None,
+    symbol: str | None = None,
+    sector: str | None = None,
+    regime: str | None = None,
+    limit: int = 500,
+) -> list[dict]:
+    """Query trades with optional filters."""
+    clauses: list[str] = []
+    params: list = []
+    if since_ts is not None:
+        clauses.append("exit_time >= ?")
+        params.append(since_ts)
+    if symbol is not None:
+        clauses.append("symbol = ?")
+        params.append(symbol)
+    if sector is not None:
+        clauses.append("sector = ?")
+        params.append(sector)
+    if regime is not None:
+        clauses.append("regime = ?")
+        params.append(regime)
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    cur = await db.execute(
+        f"SELECT * FROM trades{where} ORDER BY exit_time DESC LIMIT ?",
+        params + [limit],
+    )
+    rows = await cur.fetchall()
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, row)) for row in rows]
+
+
+async def get_trade_summary(
+    db: aiosqlite.Connection,
+    *,
+    since_ts: int,
+) -> dict:
+    """Return aggregate stats: count, total_pnl, win_count, loss_count."""
+    cur = await db.execute(
+        """SELECT
+               COUNT(*) AS count,
+               COALESCE(SUM(pnl), 0.0) AS total_pnl,
+               SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS win_count,
+               SUM(CASE WHEN pnl <= 0 THEN 1 ELSE 0 END) AS loss_count
+           FROM trades
+           WHERE exit_time >= ?""",
+        (since_ts,),
+    )
+    row = await cur.fetchone()
+    return {
+        "count": row[0],
+        "total_pnl": row[1],
+        "win_count": row[2] or 0,
+        "loss_count": row[3] or 0,
+    }
+
+
 async def init_db() -> None:
     """Create all tables and indexes if they don't exist."""
     db = await get_db()
