@@ -337,6 +337,7 @@ def generate_technical_signal(
         volume_conviction=volume["conviction"],
         position_size_factor=position_size_factor,
         timeframe_alignment=tf_alignment_score,
+        atr=round(atr_val, 4),
     )
 
 

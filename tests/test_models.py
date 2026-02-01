@@ -143,20 +143,74 @@ class TestSignal:
     def test_valid(self):
         s = Signal(symbol="AAPL", direction="LONG", entry_price=150.0,
                    stop_price=145.0, target_price=160.0, confidence=0.8,
-                   score=7.5, regime="bull", timestamp=1000)
+                   score=0.75, regime="bull", timestamp=1000)
         assert s.sector is None
 
     def test_confidence_out_of_range(self):
         with pytest.raises(ValidationError):
             Signal(symbol="AAPL", direction="LONG", entry_price=150.0,
                    stop_price=145.0, target_price=160.0, confidence=1.5,
-                   score=7.5, regime="bull", timestamp=1000)
+                   score=0.75, regime="bull", timestamp=1000)
 
     def test_confidence_negative(self):
         with pytest.raises(ValidationError):
             Signal(symbol="AAPL", direction="LONG", entry_price=150.0,
                    stop_price=145.0, target_price=160.0, confidence=-0.1,
+                   score=0.75, regime="bull", timestamp=1000)
+
+    def test_score_out_of_range(self):
+        with pytest.raises(ValidationError):
+            Signal(symbol="AAPL", direction="LONG", entry_price=150.0,
+                   stop_price=145.0, target_price=160.0, confidence=0.8,
                    score=7.5, regime="bull", timestamp=1000)
+
+    def test_score_negative(self):
+        with pytest.raises(ValidationError):
+            Signal(symbol="AAPL", direction="LONG", entry_price=150.0,
+                   stop_price=145.0, target_price=160.0, confidence=0.8,
+                   score=-0.1, regime="bull", timestamp=1000)
+
+    def test_long_stop_above_entry_rejected(self):
+        with pytest.raises(ValidationError):
+            Signal(symbol="AAPL", direction="LONG", entry_price=150.0,
+                   stop_price=155.0, target_price=160.0, confidence=0.8,
+                   score=0.75, regime="bull", timestamp=1000)
+
+    def test_short_stop_below_entry_rejected(self):
+        with pytest.raises(ValidationError):
+            Signal(symbol="AAPL", direction="SHORT", entry_price=150.0,
+                   stop_price=145.0, target_price=140.0, confidence=0.8,
+                   score=0.75, regime="bull", timestamp=1000)
+
+    def test_long_target_below_entry_rejected(self):
+        with pytest.raises(ValidationError):
+            Signal(symbol="AAPL", direction="LONG", entry_price=150.0,
+                   stop_price=145.0, target_price=140.0, confidence=0.8,
+                   score=0.75, regime="bull", timestamp=1000)
+
+    def test_short_valid(self):
+        s = Signal(symbol="AAPL", direction="SHORT", entry_price=150.0,
+                   stop_price=155.0, target_price=140.0, confidence=0.8,
+                   score=0.75, regime="bull", timestamp=1000)
+        assert s.direction == "SHORT"
+
+    def test_atr_field(self):
+        s = Signal(symbol="AAPL", direction="LONG", entry_price=150.0,
+                   stop_price=145.0, target_price=160.0, confidence=0.8,
+                   score=0.75, regime="bull", timestamp=1000, atr=2.5)
+        assert s.atr == 2.5
+
+    def test_atr_negative_rejected(self):
+        with pytest.raises(ValidationError):
+            Signal(symbol="AAPL", direction="LONG", entry_price=150.0,
+                   stop_price=145.0, target_price=160.0, confidence=0.8,
+                   score=0.75, regime="bull", timestamp=1000, atr=-1.0)
+
+    def test_atr_defaults_none(self):
+        s = Signal(symbol="AAPL", direction="LONG", entry_price=150.0,
+                   stop_price=145.0, target_price=160.0, confidence=0.8,
+                   score=0.75, regime="bull", timestamp=1000)
+        assert s.atr is None
 
 
 # ── Position ──────────────────────────────────────────────────────────────
