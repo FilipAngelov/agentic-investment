@@ -86,7 +86,7 @@ Depends on: Phase 4
 
 | Task | Description | Deliverable |
 |------|-------------|-------------|
-| 5.1 | Event-driven backtester with realistic fill model | `backtest.py` |
+| ~~5.1~~ | ~~Event-driven backtester with realistic fill model~~ | ~~`backtest/` package + CLI~~ ✅ |
 | 5.2 | Walk-forward optimization protocol | Optimization harness |
 | 5.3 | Paper trading — 30+ day graduation criteria | Graduation dashboard |
 | 5.4 | Live deployment — staged capital ramp (25% → 50% → 75% → 100%) | Deployment runbook |
