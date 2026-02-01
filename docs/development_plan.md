@@ -74,7 +74,7 @@ Depends on: Phase 3
 | 4.1 | Position tracker — real-time P&L | `portfolio/tracker.py` | ✅ Done |
 | 4.2 | Trade logging with full context | Structured trade log | ✅ Done |
 | 4.3 | Performance analytics — Sharpe, win rate, profit factor, per-sector stats | `portfolio/analytics.py` | ✅ Done |
-| 4.4 | Notification agent — WhatsApp alerts via API | `portfolio/notify.py` |
+| 4.4 | Notification agent — WhatsApp alerts via API | `portfolio/notify.py` | ✅ Done |
 | 4.5 | FastAPI dashboard — health checks, position view, P&L summary | Dashboard endpoint |
 | 4.6 | Daily/weekly reports | Automated report generation |
 
