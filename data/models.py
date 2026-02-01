@@ -338,6 +338,18 @@ class PartialExitSignal(BaseModel):
     limit_price: float  # current price for the exit order
 
 
+class TimeDecaySignal(BaseModel):
+    """Recommendation from time-based decay evaluation."""
+
+    symbol: str
+    direction: DirectionType
+    action: Literal["tighten_stop", "exit"]
+    reason: str
+    hours_held: float
+    profit_atr: float
+    new_stop: float | None = None  # set when action == "tighten_stop"
+
+
 class ReconciliationResult(BaseModel):
     """Result of bot + protected vs IBKR reconciliation."""
 
