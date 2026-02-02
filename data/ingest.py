@@ -172,7 +172,7 @@ async def fetch_bars(
                 endDateTime=end_dt,
                 durationStr=dur_str,
                 barSizeSetting=bar_size,
-                whatToShow="TRADES" if symbol.upper() != "VIX" else "CBOE",
+                whatToShow="TRADES",
                 useRTH=True,
                 formatDate=2,
             )

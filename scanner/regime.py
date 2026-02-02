@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import date, datetime, timezone
 
 import asyncpg
 
@@ -49,7 +50,13 @@ class RegimeDetector:
                 useRTH=True,
             )
             closes = [b.close for b in bars]
-            timestamps = [int(b.date.timestamp()) for b in bars]
+            timestamps = [
+                int(b.date.timestamp()) if isinstance(b.date, datetime)
+                else int(datetime(b.date.year, b.date.month, b.date.day, tzinfo=timezone.utc).timestamp())
+                if isinstance(b.date, date)
+                else int(b.date)
+                for b in bars
+            ]
             if sym == BENCHMARK_SPY:
                 self._spy_closes = closes
                 if not self._timestamps and timestamps:
