@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from ib_async import Contract, Index, Stock
@@ -89,7 +89,13 @@ def _ibkr_bars_to_models(
     """Convert ib_async BarData objects to our Bar model."""
     result: list[Bar] = []
     for b in bars:
-        ts = int(b.date.timestamp()) if hasattr(b.date, "timestamp") else int(b.date)
+        d = b.date
+        if isinstance(d, datetime):
+            ts = int(d.timestamp())
+        elif isinstance(d, date):
+            ts = int(datetime(d.year, d.month, d.day, tzinfo=timezone.utc).timestamp())
+        else:
+            ts = int(d)
         result.append(
             Bar(
                 symbol=symbol,
