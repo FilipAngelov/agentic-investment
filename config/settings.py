@@ -135,8 +135,8 @@ news_config = NewsConfig()
 class IngestConfig:
     """Historical bar ingestion settings."""
 
-    max_requests_per_sec: int = 45
-    pacing_delay_sec: float = 0.05
+    max_requests_per_sec: int = 5
+    pacing_delay_sec: float = 1.0
     daily_lookback_days: int = 500
     intraday_5m_lookback_days: int = 5
     intraday_15m_lookback_days: int = 5

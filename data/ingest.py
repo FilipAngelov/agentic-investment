@@ -248,19 +248,19 @@ async def sync_universe(
                     count = await sync_symbol(ib, db, symbol, tf, lookback)
                     total += count
                     break
-                except Exception:
+                except Exception as exc:
                     retries += 1
                     if retries > ingest_config.max_retries:
                         logger.error(
-                            "Giving up on %s/%s after %d retries",
-                            symbol, tf, ingest_config.max_retries,
+                            "Giving up on %s/%s after %d retries: %s",
+                            symbol, tf, ingest_config.max_retries, exc,
                         )
                     else:
                         logger.warning(
-                            "Retry %d/%d for %s/%s",
-                            retries, ingest_config.max_retries, symbol, tf,
+                            "Retry %d/%d for %s/%s: %s",
+                            retries, ingest_config.max_retries, symbol, tf, exc,
                         )
-                        await asyncio.sleep(1.0 * retries)
+                        await asyncio.sleep(5.0 * retries)
         results[symbol] = total
     return results
 

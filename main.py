@@ -130,6 +130,12 @@ async def connect_ib() -> IB:
     while True:
         try:
             await ib.connectAsync(cfg.host, cfg.port, clientId=cfg.client_id)
+            ib.RaiseRequestErrors = True
+
+            def _on_ib_error(reqId, errorCode, errorString, contract):
+                log.warning("IBKR error %d (reqId=%d): %s %s", errorCode, reqId, errorString, contract or "")
+
+            ib.errorEvent += _on_ib_error
             log.info("Connected to IB Gateway at %s:%s", cfg.host, cfg.port)
             return ib
         except Exception:
