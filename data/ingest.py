@@ -255,6 +255,14 @@ async def sync_universe(
                     total += count
                     break
                 except Exception as exc:
+                    # Session-level errors won't resolve by retrying
+                    exc_str = str(exc)
+                    if "different IP address" in exc_str or "No security definition" in exc_str:
+                        logger.warning(
+                            "Non-retryable error for %s/%s, skipping: %s",
+                            symbol, tf, exc,
+                        )
+                        break
                     retries += 1
                     if retries > ingest_config.max_retries:
                         logger.error(
