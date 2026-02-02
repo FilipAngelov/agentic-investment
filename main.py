@@ -189,7 +189,10 @@ async def bootstrap_data(state: SharedState) -> None:
         await sync_universe(state.ib, conn, universe, ["1d"])
         # 5-min bars — sector ETFs only, 5 days
         for sym in SECTOR_ETF_SYMBOLS:
-            await sync_symbol(state.ib, conn, sym, "5m", 5)
+            try:
+                await sync_symbol(state.ib, conn, sym, "5m", 5)
+            except Exception as exc:
+                log.warning("Bootstrap 5m bars failed for %s, skipping: %s", sym, exc)
     log.info("Data bootstrap complete")
 
 

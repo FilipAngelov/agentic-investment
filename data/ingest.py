@@ -176,8 +176,12 @@ async def fetch_bars(
                 useRTH=True,
                 formatDate=2,
             )
-        except Exception:
-            logger.exception("IBKR request failed: %s %s %s", symbol, timeframe, end_dt)
+        except Exception as exc:
+            exc_str = str(exc)
+            if "different IP address" in exc_str or "No security definition" in exc_str:
+                logger.warning("IBKR request failed (non-retryable): %s %s: %s", symbol, timeframe, exc)
+            else:
+                logger.exception("IBKR request failed: %s %s %s", symbol, timeframe, end_dt)
             raise
         if raw:
             all_bars.extend(_ibkr_bars_to_models(raw, symbol, timeframe))

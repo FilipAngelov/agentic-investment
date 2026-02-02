@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from datetime import date, datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 import asyncpg
 
@@ -41,14 +44,19 @@ class RegimeDetector:
             (BENCHMARK_SPY, Stock(BENCHMARK_SPY, "SMART", "USD")),
             (BENCHMARK_VIX, Index(BENCHMARK_VIX, "CBOE", "USD")),
         ]:
-            bars = await ib.reqHistoricalDataAsync(
-                contract,
-                endDateTime="",
-                durationStr=f"{days} D",
-                barSizeSetting="1 day",
-                whatToShow="TRADES",
-                useRTH=True,
-            )
+            try:
+                bars = await ib.reqHistoricalDataAsync(
+                    contract,
+                    endDateTime="",
+                    durationStr=f"{days} D",
+                    barSizeSetting="1 day",
+                    whatToShow="TRADES",
+                    useRTH=True,
+                )
+            except Exception as exc:
+                logger.warning("Failed to fetch regime bars for %s: %s", sym, exc)
+                await asyncio.sleep(0.05)
+                continue
             closes = [b.close for b in bars]
             timestamps = [
                 int(b.date.timestamp()) if isinstance(b.date, datetime)
