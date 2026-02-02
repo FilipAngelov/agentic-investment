@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import time
 from typing import Any
 
@@ -83,9 +84,11 @@ class CatalystEngine:
                     log.exception("Failed to parse feed %s", url)
                     continue
 
+                dupes = 0
                 for entry in entries:
                     headline = entry["headline"]
                     if await headline_exists(conn, headline):
+                        dupes += 1
                         continue
 
                     classification = await self.classify_catalyst(
@@ -112,6 +115,15 @@ class CatalystEngine:
                     row_id = await self.save_catalyst(catalyst, conn=conn)
                     catalyst.id = row_id
                     new_catalysts.append(catalyst)
+
+                new_from_feed = len(entries) - dupes
+                if entries:
+                    log.info(
+                        "Feed %s: %d entries, %d new, %d already seen",
+                        url.split("/")[2], len(entries), new_from_feed, dupes,
+                    )
+                else:
+                    log.warning("Feed %s: 0 entries returned", url.split("/")[2])
         return new_catalysts
 
     async def classify_catalyst(self, headline: str, summary: str) -> dict[str, Any]:
@@ -138,7 +150,14 @@ class CatalystEngine:
                     }
                 ],
             )
-            raw = resp.content[0].text
+            raw = resp.content[0].text.strip()
+            # Strip markdown fences if the model wrapped the JSON
+            fence = re.search(r"```(?:json)?\s*\n?(.*?)```", raw, re.DOTALL)
+            if fence:
+                raw = fence.group(1).strip()
+            if not raw:
+                log.warning("LLM returned empty response for headline: %s", headline[:80])
+                raise ValueError("empty LLM response")
             data = json.loads(raw)
             return self._validate_classification(data)
         except Exception:

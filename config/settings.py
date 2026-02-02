@@ -82,21 +82,29 @@ class NewsConfig:
     """RSS / catalyst engine settings."""
 
     feed_urls: tuple[str, ...] = (
-        "https://feeds.reuters.com/reuters/businessNews",
-        "https://feeds.reuters.com/reuters/technologyNews",
-        "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&dateb=&owner=include&count=40&search_text=&start=0&output=atom",
+        # Business / macro
+        "https://feeds.bbci.co.uk/news/business/rss.xml",
+        "https://feeds.marketwatch.com/marketwatch/topstories/",
+        # Tech / AI / semis
+        "https://www.cnbc.com/id/19854910/device/rss/rss.html",
+        # Biotech / pharma
         "https://www.statnews.com/feed/",
-        "https://www.defenseone.com/rss/",
-        "https://www.kitco.com/rss/",
+        # Defense / aerospace
+        "https://breakingdefense.com/feed/",
+        # Metals / commodities
+        "https://www.investing.com/rss/news_14.rss",
+        # Crypto
         "https://www.coindesk.com/arc/outboundfeeds/rss/",
+        # Energy / grid
         "https://www.utilitydive.com/feeds/news/",
+        # Space / nuclear
         "https://spacenews.com/feed/",
         "https://www.world-nuclear-news.org/rss",
     )
     poll_interval_market: int = 120  # seconds
     poll_interval_off: int = 1800  # seconds
     max_age_hours: int = 48
-    llm_model: str = "claude-haiku-4-20250414"
+    llm_model: str = "claude-haiku-4-5-20251001"
 
 
 @dataclass(frozen=True)
