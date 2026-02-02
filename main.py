@@ -298,9 +298,10 @@ async def process_candidates(state: SharedState, candidates: list[dict]) -> None
         try:
             # Ensure bars exist
             async with state.pool.acquire() as conn:
-                latest_ts = await query_bars(conn, symbol=symbol, timeframe="1d")
-                if not latest_ts:
-                    await sync_symbol(state.ib, conn, symbol, "1d", 65)
+                existing_bars = await query_bars(conn, symbol=symbol, timeframe="1d")
+                if not existing_bars:
+                    synced = await sync_symbol(state.ib, conn, symbol, "1d", 65)
+                    log.info("Synced %d daily bars for candidate %s", synced, symbol)
 
                 # Fetch bars from DB
                 stock_rows = await query_bars(conn, symbol=symbol, timeframe="1d")
@@ -340,6 +341,7 @@ async def process_candidates(state: SharedState, candidates: list[dict]) -> None
             )
 
             if sig is None:
+                log.debug("No signal generated for %s — skipped", symbol)
                 continue
 
             result = state.order_manager.execute_signal(sig, account, bot_positions)

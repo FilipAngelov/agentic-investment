@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import time
+
+log = logging.getLogger(__name__)
 
 from config.sectors import REGIME_FACTORS, REGIME_BEAR, REGIME_BEAR_LONG_FACTOR
 from config.settings import risk_config
@@ -229,11 +232,13 @@ def generate_technical_signal(
 ) -> Signal | None:
     """Orchestrate technical analysis and produce a Signal if conditions met."""
     if len(bars) < 51:
+        log.debug("Skipping signal: only %d bars (need 51)", len(bars))
         return None
 
     technicals = compute_technicals(bars)
     breakout = detect_breakout(bars, technicals)
     if breakout is None:
+        log.debug("Skipping signal: no breakout detected")
         return None
 
     direction: DirectionType = breakout["direction"]
