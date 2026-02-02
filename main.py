@@ -7,7 +7,8 @@ import logging
 import signal
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dt_time
+from zoneinfo import ZoneInfo
 from typing import Any
 
 import asyncpg
@@ -17,7 +18,6 @@ from config.logging import setup_logging
 from config.sectors import (
     BENCHMARK_SPY,
     BENCHMARK_VIX,
-    ETF_TO_SECTOR,
     SECTOR_ETF_SYMBOLS,
 )
 from config.settings import (
@@ -27,6 +27,7 @@ from config.settings import (
     risk_config,
 )
 from data.ingest import sync_symbol, sync_universe
+from data.indicators import atr as compute_atr
 from data.models import AccountState, Bar, Catalyst, Position
 from data.store import close_pool, get_db, init_db, query_bars, query_catalysts
 from execution.orders import OrderManager
@@ -58,7 +59,7 @@ log = logging.getLogger(__name__)
 # Eastern time helpers
 # ---------------------------------------------------------------------------
 
-_ET = timezone(timedelta(hours=-5))
+_ET = ZoneInfo("America/New_York")
 
 
 def _now_et() -> datetime:
@@ -71,7 +72,7 @@ def is_market_hours() -> bool:
     if now.weekday() >= 5:
         return False
     t = now.time()
-    return t >= datetime(2000, 1, 1, 9, 30).time() and t < datetime(2000, 1, 1, 16, 0).time()
+    return dt_time(9, 30) <= t < dt_time(16, 0)
 
 
 def is_premarket() -> bool:
@@ -80,12 +81,12 @@ def is_premarket() -> bool:
     if now.weekday() >= 5:
         return False
     t = now.time()
-    return t >= datetime(2000, 1, 1, 9, 0).time() and t < datetime(2000, 1, 1, 9, 30).time()
+    return dt_time(9, 0) <= t < dt_time(9, 30)
 
 
 def _is_after(hour: int, minute: int) -> bool:
     t = _now_et().time()
-    return t >= datetime(2000, 1, 1, hour, minute).time()
+    return t >= dt_time(hour, minute)
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +294,7 @@ async def process_candidates(state: SharedState, candidates: list[dict]) -> None
             async with state.pool.acquire() as conn:
                 latest_ts = await query_bars(conn, symbol=symbol, timeframe="1d")
                 if not latest_ts:
-                    await sync_symbol(state.ib, conn, symbol, "1d", 500)
+                    await sync_symbol(state.ib, conn, symbol, "1d", 65)
 
                 # Fetch bars from DB
                 stock_rows = await query_bars(conn, symbol=symbol, timeframe="1d")
@@ -307,8 +308,6 @@ async def process_candidates(state: SharedState, candidates: list[dict]) -> None
             # Build sector tracker info
             sector_info = None
             if sector:
-                etf = ETF_TO_SECTOR.get(sector)  # this is sector→etf but we need sector name→etf
-                # Find ETF for sector
                 from config.sectors import SECTOR_ETFS
                 etf = SECTOR_ETFS.get(sector)
                 if etf:
@@ -467,6 +466,23 @@ async def position_management_loop(state: SharedState) -> None:
             regime = state.regime_detector.get_current_regime() or "choppy"
             now_ts = int(time.time())
 
+            # Pre-compute ATR for all open positions
+            atrs: dict[str, float] = {}
+            try:
+                async with state.pool.acquire() as conn:
+                    for symbol in positions:
+                        rows = await query_bars(conn, symbol=symbol, timeframe="1d")
+                        if rows and len(rows) >= 15:
+                            highs = [r["high"] for r in rows[-20:]]
+                            lows = [r["low"] for r in rows[-20:]]
+                            closes = [r["close"] for r in rows[-20:]]
+                            atr_vals = compute_atr(highs, lows, closes, period=14)
+                            last_atr = next((v for v in reversed(atr_vals) if v is not None), None)
+                            if last_atr:
+                                atrs[symbol] = last_atr
+            except Exception:
+                log.warning("Failed to compute ATRs from DB, using fallback", exc_info=True)
+
             for symbol, pos in list(positions.items()):
                 price = get_streaming_price(state, symbol)
                 if price is None:
@@ -474,10 +490,8 @@ async def position_management_loop(state: SharedState) -> None:
 
                 state.tracker.update_price(symbol, price)
 
-                # ATR from latest bars
-                atr = pos.current_price * 0.02  # fallback 2%
-                if hasattr(pos, "atr") and pos.atr:
-                    atr = pos.atr
+                # ATR from pre-computed values, fallback to 2% of price
+                atr = atrs.get(symbol, pos.current_price * 0.02)
 
                 # Trailing stop
                 stop_update = state.trailing_stop.update_stop(pos, price, atr, regime)
