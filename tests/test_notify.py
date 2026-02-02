@@ -1,4 +1,4 @@
-"""Tests for portfolio.notify — WhatsApp notification agent."""
+"""Tests for portfolio.notify — WhatsApp notification agent via Clawdbot."""
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -19,7 +19,11 @@ def _reset_lock():
 
 @pytest.mark.asyncio
 async def test_send_whatsapp_not_configured():
-    with patch.object(notify, "notify_config", MagicMock(whatsapp_api_url="", whatsapp_api_key="")):
+    with patch.object(
+        notify,
+        "notify_config",
+        MagicMock(clawdbot_url="", clawdbot_token="", fallback_log="/tmp/test_notify.log"),
+    ):
         assert await notify.send_whatsapp("hi") is False
 
 
@@ -30,12 +34,12 @@ def _make_session(resp=None, side_effect=None):
     mock_session.__aexit__ = AsyncMock(return_value=False)
 
     if side_effect is not None:
-        mock_session.get.side_effect = side_effect
+        mock_session.post.side_effect = side_effect
     else:
         cm = MagicMock()
         cm.__aenter__ = AsyncMock(return_value=resp)
         cm.__aexit__ = AsyncMock(return_value=False)
-        mock_session.get.return_value = cm
+        mock_session.post.return_value = cm
 
     return mock_session
 
@@ -46,14 +50,22 @@ async def test_send_whatsapp_success():
     mock_session = _make_session(resp=mock_resp)
 
     with (
-        patch.object(notify, "notify_config", MagicMock(whatsapp_api_url="https://api.callmebot.com/whatsapp.php?phone=+1234", whatsapp_api_key="key123")),
+        patch.object(
+            notify,
+            "notify_config",
+            MagicMock(
+                clawdbot_url="http://127.0.0.1:18789",
+                clawdbot_token="testtoken",
+                notify_target="+1234",
+                fallback_log="/tmp/test_notify.log",
+            ),
+        ),
         patch("portfolio.notify.aiohttp.ClientSession", return_value=mock_session),
     ):
         result = await notify.send_whatsapp("hello world")
         assert result is True
-        call_url = mock_session.get.call_args[0][0]
-        assert "text=hello%20world" in call_url
-        assert "apikey=key123" in call_url
+        call_kwargs = mock_session.post.call_args
+        assert "tools/invoke" in call_kwargs[1].get("url", call_kwargs[0][0] if call_kwargs[0] else "")
 
 
 @pytest.mark.asyncio
@@ -62,8 +74,18 @@ async def test_send_whatsapp_http_error():
     mock_session = _make_session(resp=mock_resp)
 
     with (
-        patch.object(notify, "notify_config", MagicMock(whatsapp_api_url="https://example.com", whatsapp_api_key="k")),
+        patch.object(
+            notify,
+            "notify_config",
+            MagicMock(
+                clawdbot_url="http://127.0.0.1:18789",
+                clawdbot_token="t",
+                notify_target="+1",
+                fallback_log="/tmp/test_notify.log",
+            ),
+        ),
         patch("portfolio.notify.aiohttp.ClientSession", return_value=mock_session),
+        patch.object(notify, "_fallback_log"),
     ):
         assert await notify.send_whatsapp("test") is False
 
@@ -71,13 +93,22 @@ async def test_send_whatsapp_http_error():
 @pytest.mark.asyncio
 async def test_send_whatsapp_timeout():
     mock_session = _make_session(side_effect=asyncio.TimeoutError())
-
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock(return_value=False)
 
     with (
-        patch.object(notify, "notify_config", MagicMock(whatsapp_api_url="https://example.com", whatsapp_api_key="k")),
+        patch.object(
+            notify,
+            "notify_config",
+            MagicMock(
+                clawdbot_url="http://127.0.0.1:18789",
+                clawdbot_token="t",
+                notify_target="+1",
+                fallback_log="/tmp/test_notify.log",
+            ),
+        ),
         patch("portfolio.notify.aiohttp.ClientSession", return_value=mock_session),
+        patch.object(notify, "_fallback_log"),
     ):
         assert await notify.send_whatsapp("test") is False
 
@@ -102,7 +133,7 @@ async def test_notify_exit_win():
     with patch.object(notify, "send_whatsapp", new_callable=AsyncMock) as mock_send:
         await notify.notify_exit("AAPL", "long", 10, 150.0, 160.0, 100.0, 6.67, "target")
         msg = mock_send.call_args[0][0]
-        assert "🟢" in msg
+        assert "[+]" in msg
         assert "+100.00" in msg
 
 
@@ -111,7 +142,7 @@ async def test_notify_exit_loss():
     with patch.object(notify, "send_whatsapp", new_callable=AsyncMock) as mock_send:
         await notify.notify_exit("AAPL", "long", 10, 150.0, 140.0, -100.0, -6.67, "stop")
         msg = mock_send.call_args[0][0]
-        assert "🔴" in msg
+        assert "[-]" in msg
 
 
 @pytest.mark.asyncio
@@ -161,20 +192,31 @@ async def test_send_whatsapp_serializes_calls():
     class FakeCtx:
         def __init__(self):
             self.status = 200
+
         async def __aenter__(self):
             call_order.append("start")
             await asyncio.sleep(0.01)
             return self
+
         async def __aexit__(self, *a):
             call_order.append("end")
 
     mock_session = MagicMock()
-    mock_session.get = MagicMock(side_effect=lambda *a, **kw: FakeCtx())
+    mock_session.post = MagicMock(side_effect=lambda *a, **kw: FakeCtx())
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock(return_value=False)
 
     with (
-        patch.object(notify, "notify_config", MagicMock(whatsapp_api_url="https://example.com", whatsapp_api_key="k")),
+        patch.object(
+            notify,
+            "notify_config",
+            MagicMock(
+                clawdbot_url="http://127.0.0.1:18789",
+                clawdbot_token="t",
+                notify_target="+1",
+                fallback_log="/tmp/test_notify.log",
+            ),
+        ),
         patch("portfolio.notify.aiohttp.ClientSession", return_value=mock_session),
     ):
         await asyncio.gather(

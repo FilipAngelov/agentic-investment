@@ -67,10 +67,14 @@ class RiskConfig:
 
 @dataclass(frozen=True)
 class NotifyConfig:
-    """Notification settings."""
+    """Notification settings — Clawdbot WhatsApp gateway."""
 
-    whatsapp_api_url: str = os.getenv("WHATSAPP_API_URL", "")
-    whatsapp_api_key: str = os.getenv("WHATSAPP_API_KEY", "")
+    clawdbot_url: str = os.getenv("CLAWDBOT_API_URL", "http://127.0.0.1:18789")
+    clawdbot_token: str = os.getenv("CLAWDBOT_API_TOKEN", "")
+    notify_target: str = os.getenv("NOTIFY_TARGET", "+38978345900")
+    fallback_log: str = os.getenv(
+        "NOTIFY_FALLBACK_LOG", "/Users/filip/clawd/notifications.log"
+    )
 
 
 @dataclass(frozen=True)

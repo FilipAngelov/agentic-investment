@@ -116,6 +116,14 @@ class CatalystEngine:
 
     async def classify_catalyst(self, headline: str, summary: str) -> dict[str, Any]:
         """Call Claude to classify headline+summary. Returns dict with sentiment etc."""
+        if not self._api_key:
+            return {
+                "sentiment": 0.0,
+                "magnitude": 1,
+                "catalyst_type": "other",
+                "symbols": [],
+                "sectors": [],
+            }
         try:
             client = self._get_client()
             resp = await client.messages.create(
