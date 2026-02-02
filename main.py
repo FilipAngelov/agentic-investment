@@ -134,7 +134,10 @@ async def connect_ib() -> IB:
             ib.RaiseRequestErrors = True
 
             def _on_ib_error(reqId, errorCode, errorString, contract):
-                log.warning("IBKR error %d (reqId=%d): %s %s", errorCode, reqId, errorString, contract or "")
+                if errorCode in (162, 165, 2103, 2104, 2105, 2106):
+                    log.debug("IBKR info %d (reqId=%d): %s", errorCode, reqId, errorString)
+                else:
+                    log.warning("IBKR error %d (reqId=%d): %s %s", errorCode, reqId, errorString, contract or "")
 
             ib.errorEvent += _on_ib_error
             log.info("Connected to IB Gateway at %s:%s", cfg.host, cfg.port)
