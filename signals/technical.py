@@ -18,7 +18,7 @@ from data.indicators import (
     rsi,
     sma,
 )
-from data.models import DirectionType, RegimeType, Signal
+from data.models import Catalyst, DirectionType, RegimeType, Signal
 
 # Minimum confidence to emit a signal
 MIN_CONFIDENCE = 0.4
@@ -82,6 +82,105 @@ def detect_breakout(bars: list[dict], technicals: dict) -> dict | None:
         return {"direction": "LONG", "level": highest, "type": "high_breakout"}
     if last_close < lowest and last_close < sma50:
         return {"direction": "SHORT", "level": lowest, "type": "low_breakdown"}
+    return None
+
+
+def detect_momentum_continuation(
+    bars: list[dict], technicals: dict, momentum: dict, volume: dict
+) -> dict | None:
+    """Detect momentum continuation: SMA20>SMA50 + RSI 50-70 + rvol>=1.5 + MACD hist rising."""
+    sma20 = _last_valid(technicals["sma_20"])
+    sma50 = _last_valid(technicals["sma_50"])
+    if sma20 is None or sma50 is None:
+        return None
+
+    rsi_val = momentum["rsi"]
+    rvol = volume.get("rvol")
+    macd_rising = momentum["macd_histogram_rising"]
+
+    # Long: SMA20 > SMA50, RSI 50-70, rvol >= 1.5, MACD hist rising
+    if sma20 > sma50 and rsi_val is not None and 50 <= rsi_val <= 70:
+        if rvol is not None and rvol >= 1.5 and macd_rising:
+            return {"direction": "LONG", "type": "momentum_continuation"}
+
+    # Short: SMA20 < SMA50, RSI 30-50, rvol >= 1.5, MACD hist falling
+    if sma20 < sma50 and rsi_val is not None and 30 <= rsi_val <= 50:
+        if rvol is not None and rvol >= 1.5 and not macd_rising:
+            return {"direction": "SHORT", "type": "momentum_continuation"}
+
+    return None
+
+
+def detect_catalyst_driven(
+    bars: list[dict],
+    technicals: dict,
+    momentum: dict,
+    volume: dict,
+    catalysts: list[Catalyst] | None,
+) -> dict | None:
+    """Detect catalyst-driven move: max magnitude>=3 + ROC aligned + rvol>=1.5."""
+    if not catalysts:
+        return None
+
+    max_mag = max((c.magnitude or 0) for c in catalysts)
+    if max_mag < 3:
+        return None
+
+    rvol = volume.get("rvol")
+    if rvol is None or rvol < 1.5:
+        return None
+
+    roc5 = momentum.get("roc_5")
+    if roc5 is None:
+        return None
+
+    # Find dominant sentiment
+    best = max(catalysts, key=lambda c: c.magnitude or 0)
+    sentiment = best.sentiment
+
+    if sentiment is not None and sentiment > 0 and roc5 > 0:
+        return {"direction": "LONG", "type": "catalyst_driven"}
+    if sentiment is not None and sentiment < 0 and roc5 < 0:
+        return {"direction": "SHORT", "type": "catalyst_driven"}
+
+    return None
+
+
+def detect_near_breakout(
+    bars: list[dict], technicals: dict, momentum: dict, volume: dict
+) -> dict | None:
+    """Detect near-breakout: within 2% of 20-day high/low + SMA50 trend aligned + rvol>=1.5."""
+    if len(bars) < 21:
+        return None
+
+    closes = [b["close"] for b in bars]
+    highs = [b["high"] for b in bars]
+    lows = [b["low"] for b in bars]
+    last_close = closes[-1]
+
+    sma50 = _last_valid(technicals["sma_50"])
+    if sma50 is None:
+        return None
+
+    rvol = volume.get("rvol")
+    if rvol is None or rvol < 1.5:
+        return None
+
+    prior_highs = highs[-21:-1]
+    prior_lows = lows[-21:-1]
+    highest = max(prior_highs)
+    lowest = min(prior_lows)
+
+    # Within 2% of 20-day high, above SMA50
+    if last_close >= highest * 0.98 and last_close <= highest and last_close > sma50:
+        if momentum["trend"] == "up":
+            return {"direction": "LONG", "level": highest, "type": "near_breakout"}
+
+    # Within 2% of 20-day low, below SMA50
+    if last_close <= lowest * 1.02 and last_close >= lowest and last_close < sma50:
+        if momentum["trend"] == "down":
+            return {"direction": "SHORT", "level": lowest, "type": "near_breakout"}
+
     return None
 
 
@@ -229,24 +328,51 @@ def generate_technical_signal(
     direction_hint: DirectionType | None = None,
     sector: str | None = None,
     higher_tf_bars: dict[str, list[dict]] | None = None,
+    catalysts: list[Catalyst] | None = None,
 ) -> Signal | None:
-    """Orchestrate technical analysis and produce a Signal if conditions met."""
+    """Orchestrate technical analysis and produce a Signal if conditions met.
+
+    Tries 4 signal paths (breakout, momentum, catalyst, near-breakout),
+    picks the highest base confidence, then applies bonuses and filters.
+    """
     if len(bars) < 51:
         log.debug("Skipping signal: only %d bars (need 51)", len(bars))
         return None
 
     technicals = compute_technicals(bars)
-    breakout = detect_breakout(bars, technicals)
-    if breakout is None:
-        log.debug("Skipping signal: no breakout detected")
-        return None
-
-    direction: DirectionType = breakout["direction"]
-    if direction_hint is not None and direction != direction_hint:
-        return None
-
     momentum = check_momentum(technicals)
     volume = check_volume_confirmation(technicals)
+
+    # --- Collect candidates from all signal paths ---
+    candidates: list[tuple[float, dict, str]] = []  # (base_conf, detection, signal_type)
+
+    breakout = detect_breakout(bars, technicals)
+    if breakout is not None:
+        candidates.append((0.40, breakout, "breakout"))
+
+    mom_signal = detect_momentum_continuation(bars, technicals, momentum, volume)
+    if mom_signal is not None:
+        candidates.append((0.30, mom_signal, "momentum"))
+
+    cat_signal = detect_catalyst_driven(bars, technicals, momentum, volume, catalysts)
+    if cat_signal is not None:
+        candidates.append((0.30, cat_signal, "catalyst"))
+
+    near_bo = detect_near_breakout(bars, technicals, momentum, volume)
+    if near_bo is not None:
+        candidates.append((0.25, near_bo, "near_breakout"))
+
+    if not candidates:
+        log.debug("Skipping signal: no signal path triggered")
+        return None
+
+    # Pick highest base confidence
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    base_confidence, detection, signal_type = candidates[0]
+
+    direction: DirectionType = detection["direction"]
+    if direction_hint is not None and direction != direction_hint:
+        return None
 
     # Filter: don't go long if overbought, don't short if oversold
     if direction == "LONG" and momentum["rsi_signal"] == "overbought":
@@ -254,19 +380,18 @@ def generate_technical_signal(
     if direction == "SHORT" and momentum["rsi_signal"] == "oversold":
         return None
 
-    # Confidence scoring
-    breakout_score = 0.4  # base for having a breakout
-    momentum_score = 0.0
+    # Confidence scoring: base + momentum/volume bonuses
+    momentum_bonus = 0.0
     if direction == "LONG":
         if momentum["trend"] == "up":
-            momentum_score += 0.15
+            momentum_bonus += 0.15
         if momentum["macd_cross"] == "bullish" or momentum["macd_histogram_rising"]:
-            momentum_score += 0.1
+            momentum_bonus += 0.1
     else:
         if momentum["trend"] == "down":
-            momentum_score += 0.15
+            momentum_bonus += 0.15
         if momentum["macd_cross"] == "bearish" or not momentum["macd_histogram_rising"]:
-            momentum_score += 0.1
+            momentum_bonus += 0.1
 
     vol_score = 0.0
     if volume["conviction"] == "strong":
@@ -277,8 +402,12 @@ def generate_technical_signal(
     if volume["price_volume_divergence"] and direction == "LONG":
         vol_score -= 0.1
 
-    confidence = min(breakout_score + momentum_score + vol_score, 1.0)
+    confidence = min(base_confidence + momentum_bonus + vol_score, 1.0)
     if confidence < MIN_CONFIDENCE:
+        log.debug(
+            "Signal %s filtered: confidence %.3f < %.2f",
+            signal_type, confidence, MIN_CONFIDENCE,
+        )
         return None
 
     # Stop/target
@@ -296,7 +425,11 @@ def generate_technical_signal(
     )
 
     reasons: list[str] = []
-    reasons.append(f"{breakout['type']} at {breakout['level']:.2f}")
+    reasons.append(f"signal={signal_type}")
+    if detection.get("level") is not None:
+        reasons.append(f"{detection['type']} at {detection['level']:.2f}")
+    else:
+        reasons.append(detection["type"])
     reasons.append(f"trend={momentum['trend']}")
     reasons.append(f"RSI={momentum['rsi']:.1f}" if momentum["rsi"] else "RSI=N/A")
     reasons.append(f"rvol={volume['rvol']:.1f}x" if volume["rvol"] else "rvol=N/A")
@@ -337,6 +470,7 @@ def generate_technical_signal(
         score=round(confidence, 3),
         regime=regime,
         sector=sector,
+        signal_type=signal_type,
         reason="; ".join(reasons),
         timestamp=bars[-1].get("timestamp", int(time.time())),
         volume_conviction=volume["conviction"],

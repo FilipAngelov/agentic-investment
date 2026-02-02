@@ -53,6 +53,7 @@ def generate_signal(
         direction_hint=direction_hint,
         sector=sector,
         higher_tf_bars=higher_tf_bars,
+        catalysts=catalysts,
     )
     if technical_signal is None:
         return None

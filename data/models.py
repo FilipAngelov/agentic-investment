@@ -185,6 +185,7 @@ class Signal(BaseModel):
     sector: str | None = None
     reason: str | None = None
     timestamp: int
+    signal_type: str | None = None  # "breakout", "momentum", "catalyst", "near_breakout"
     volume_conviction: str | None = None
     position_size_factor: float = 1.0
     timeframe_alignment: float | None = None
