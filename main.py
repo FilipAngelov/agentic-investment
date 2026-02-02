@@ -22,6 +22,7 @@ from config.sectors import (
 )
 from config.settings import (
     DATABASE_URL,
+    DRY_RUN,
     ib_config,
     load_protected_positions,
     risk_config,
@@ -137,6 +138,8 @@ async def connect_ib() -> IB:
 
             ib.errorEvent += _on_ib_error
             log.info("Connected to IB Gateway at %s:%s", cfg.host, cfg.port)
+            if DRY_RUN:
+                log.info("DRY_RUN mode — orders will NOT be placed")
             return ib
         except Exception:
             log.warning("IB connection failed, retrying in 30s…", exc_info=True)

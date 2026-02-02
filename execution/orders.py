@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from ib_async import LimitOrder, Order, StopOrder, Stock
 
-from config.settings import RiskConfig
+from config.settings import DRY_RUN, RiskConfig
 from data.models import (
     AccountState,
     DirectionType,
@@ -84,7 +84,20 @@ class OrderManager:
                 pre_trade=pre_trade,
             )
 
-        # 4. Place bracket
+        # 4. Dry-run gate
+        if DRY_RUN:
+            logger.info(
+                "DRY_RUN: would place %s %s %d shares @ %.2f  stop=%.2f  target=%.2f",
+                direction, symbol, shares, signal.entry_price, signal.stop_price, signal.target_price,
+            )
+            return OrderResult(
+                success=False, symbol=symbol, direction=direction, shares=shares,
+                entry_price=signal.entry_price, stop_price=signal.stop_price,
+                target_price=signal.target_price, order_ids=[], pre_trade=pre_trade,
+                reason="DRY_RUN",
+            )
+
+        # 5. Place bracket
         parent, stop_child, target_child = self._build_bracket(
             symbol=symbol,
             direction=direction,

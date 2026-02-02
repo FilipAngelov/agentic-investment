@@ -146,3 +146,4 @@ class IngestConfig:
 
 
 ingest_config = IngestConfig()
+DRY_RUN: bool = os.getenv("DRY_RUN", "false").lower() in ("1", "true", "yes")
